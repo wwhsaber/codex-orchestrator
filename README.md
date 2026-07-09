@@ -50,6 +50,7 @@ Use $codex-orchestrator to plan, delegate, and verify this coding task.
 
 - High-stakes or multi-agent work: orchestrate, delegate to sub-agents, run parallel workers, compare implementations, or use an external CLI lane.
 - Recommended: `Use $codex-orchestrator ...` so the skill is selected intentionally.
+- In orchestrator mode, "two agents" or "two independent reviews" means Grok + Claude external lanes first when available. Say "Codex worker/explorer" when you specifically want Codex runtime sub-agents.
 - Skip for ordinary single-session tasks: fix, implement, refactor, review, or plan alone.
 
 ## Install As A Plugin

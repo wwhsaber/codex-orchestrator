@@ -50,6 +50,8 @@ Use the cheapest adequate lane:
 - External CLI lane: when the user asks for a specific external model or wants a non-Codex producer.
 - Advisor pass: commitment-boundary judgment, not implementation.
 
+When the user asks for "two agents", "two independent reviews", "two implementations", "compare two approaches", or similar wording under this skill, treat that as a request for independent model producers first: use Grok and Claude external CLI lanes when available. Use Codex `worker` / `explorer` sub-agents for that request only when the user explicitly asks for Codex sub-agents, or after a requested external lane is unavailable and the user chooses Codex sub-agents instead.
+
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
 When a lane is unavailable, say so plainly. Use another lane only after making the change in route explicit.
@@ -57,6 +59,8 @@ When a lane is unavailable, say so plainly. Use another lane only after making t
 ## Sub-Agent Rules
 
 In Codex, `worker` and `explorer` are runtime sub-agent types. They are not loaded from repository `agents/*.md` files. The bundled `agents/openai.yaml` file is only UI metadata for the skill card.
+
+Do not treat a generic request for "agents" as Codex `worker` / `explorer` by default when this skill is active. If the user did not specify Codex sub-agents, check whether the wording implies independent model producers and route to external CLI lanes first.
 
 When spawning a worker, include:
 
