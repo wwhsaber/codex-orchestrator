@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Orchestrator"
+  short_description: "Delegate implementation and verify evidence"
+  default_prompt: "Use $codex-orchestrator to plan, delegate, and verify this coding task."
