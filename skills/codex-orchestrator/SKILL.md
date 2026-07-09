@@ -52,6 +52,8 @@ When a lane is unavailable, say so plainly. Use another lane only after making t
 
 ## Sub-Agent Rules
 
+In Codex, `worker` and `explorer` are runtime sub-agent types. They are not loaded from repository `agents/*.md` files. The bundled `agents/openai.yaml` file is only UI metadata for the skill card.
+
 When spawning a worker, include:
 
 - The five-part spec.
@@ -68,7 +70,7 @@ Avoid sending multiple agents to edit the same files. If two independent impleme
 
 Use external CLIs only when the user asks for them, when the skill invocation explicitly includes them, or when the task benefits from a distinct model producer.
 
-Before using an external CLI, run a preflight:
+Before using an external CLI, run a preflight for the requested lane:
 
 ```bash
 command -v grok && grok --version
@@ -85,12 +87,20 @@ If the user names a model, pass the model flag for that CLI. If the user does no
 Examples:
 
 ```bash
+# User specified a model.
 grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
+
+# User did not specify a model; use the CLI default.
+grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p < "$SPEC"
+codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`.
+
+Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in a separate working directory or worktree, keep permissions conservative, and verify the diff before copying or accepting changes.
 
 For external CLI work:
 
@@ -114,7 +124,7 @@ Use an advisor pass before:
 - A bug that has resisted two distinct attempts.
 - Declaring a large multi-step deliverable complete.
 
-The advisor is read-only. Ask for a verdict under 300 words: do X, not Y, because Z; include the one risk that decides it. If the plan is sound, the advisor should say so briefly.
+The advisor is read-only. Use a local self-review or a read-only explorer pass. Ask for a verdict under 300 words: do X, not Y, because Z; include the one risk that decides it. If the plan is sound, the advisor should say so briefly.
 
 ## Verification
 

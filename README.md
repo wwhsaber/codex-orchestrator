@@ -17,7 +17,9 @@ codex-orchestrator/
 └── LICENSE
 ```
 
-This mirrors the plugin shape used by Claude Code plugins: a root plugin manifest plus one or more skills under `skills/`.
+This is a Codex plugin repository: the root manifest advertises the package, and the skill lives under `skills/`.
+
+`skills/codex-orchestrator/agents/openai.yaml` is Codex skill UI metadata. It is not a runnable Claude-style agent definition.
 
 ## Install As A Skill
 
@@ -25,6 +27,8 @@ The simplest install path is to copy the nested skill into your Codex skills dir
 
 ```bash
 git clone <your-repo-url> /tmp/codex-orchestrator
+mkdir -p ~/.codex/skills
+rm -rf ~/.codex/skills/codex-orchestrator
 cp -R /tmp/codex-orchestrator/skills/codex-orchestrator ~/.codex/skills/codex-orchestrator
 ```
 
@@ -36,7 +40,39 @@ Use $codex-orchestrator to plan, delegate, and verify this coding task.
 
 ## Install As A Plugin
 
-This repo also includes `.codex-plugin/plugin.json` for Codex plugin distribution. Install it through your normal Codex plugin marketplace or local plugin flow.
+Clone the plugin to the default local plugin location:
+
+```bash
+mkdir -p ~/plugins
+git clone <your-repo-url> ~/plugins/codex-orchestrator
+```
+
+Then add a local marketplace entry at `~/.agents/plugins/marketplace.json`:
+
+```json
+{
+  "name": "personal",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "codex-orchestrator",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-orchestrator"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+Restart Codex after installing or updating the plugin.
 
 ## What It Does
 
@@ -51,9 +87,15 @@ This repo also includes `.codex-plugin/plugin.json` for Codex plugin distributio
 If you specify a model, the skill should pass the model flag to that CLI.
 
 ```bash
+# User specified a model
 grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
+
+# User did not specify a model; use the CLI default
+grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p < "$SPEC"
+codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
 If you do not specify a model, the CLI default is used.
