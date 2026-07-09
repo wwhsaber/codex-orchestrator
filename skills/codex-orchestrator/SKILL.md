@@ -86,7 +86,7 @@ command -v codex && codex --version
 
 Use only the CLI that is installed, authenticated, and requested or appropriate for the lane. If a CLI is missing or not authenticated, report `STATUS: unavailable` with the exact reason.
 
-If no external CLI is available, continue with local Codex lanes. Do not stop the task or ask the user to install tools unless the user explicitly required that external lane.
+If a requested external CLI is unavailable, stop before doing equivalent work another way. Ask whether to install/configure that CLI or use Codex `worker` / `explorer` sub-agents instead.
 
 ### Model Selection
 

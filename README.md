@@ -10,6 +10,8 @@ None. The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone
 
 External CLIs (`grok`, `claude`, `codex`) are optional. Use them only when you want a distinct model producer or explicitly ask for that lane.
 
+If you request an external lane that is not installed or authenticated, the skill should stop and ask whether to install/configure that CLI or continue with Codex `worker` / `explorer` sub-agents.
+
 ## Structure
 
 ```text
