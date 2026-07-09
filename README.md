@@ -4,6 +4,12 @@ Architect-style orchestration plugin for Codex.
 
 Use it when you want Codex to plan, delegate implementation, compare worker output, call external model CLIs, and verify evidence before reporting completion.
 
+## Dependencies
+
+None. The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone.
+
+External CLIs (`grok`, `claude`, `codex`) are optional. Use them only when you want a distinct model producer or explicitly ask for that lane.
+
 ## Structure
 
 ```text
@@ -79,7 +85,7 @@ Restart Codex after installing or updating the plugin.
 - Keeps the main Codex session as architect.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
-- Supports optional external CLI lanes such as `grok`, `claude`, and `codex`.
+- Supports optional external CLI lanes such as `grok`, `claude`, and `codex` when those tools are installed and authenticated.
 - Requires final verification from the main session before calling work done.
 
 ## Model Selection

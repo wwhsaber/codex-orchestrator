@@ -13,9 +13,11 @@ The main session owns requirements, decomposition, interface design, routing, an
 
 Do not delegate by habit. Keep work local when the task is small, tightly coupled, blocked on immediate context, or faster to edit directly. Delegate only concrete, bounded tasks that can run without sharing a write set with ongoing local work.
 
+Before choosing a route, reduce the task to first principles: user goal, hard constraints, repo facts, unknowns, and the smallest action that follows.
+
 ## Workflow
 
-1. Inspect the repo enough to understand the target files, conventions, tests, and current git state.
+1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
 4. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
@@ -48,6 +50,8 @@ Use the cheapest adequate lane:
 - External CLI lane: when the user asks for a specific external model or wants a non-Codex producer.
 - Advisor pass: commitment-boundary judgment, not implementation.
 
+Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
+
 When a lane is unavailable, say so plainly. Use another lane only after making the change in route explicit.
 
 ## Sub-Agent Rules
@@ -68,7 +72,9 @@ Avoid sending multiple agents to edit the same files. If two independent impleme
 
 ## External CLI Lanes
 
-Use external CLIs only when the user asks for them, when the skill invocation explicitly includes them, or when the task benefits from a distinct model producer.
+External CLIs are optional. The skill is fully functional with local Codex work and Codex `worker` / `explorer` sub-agents alone.
+
+Use external CLIs only when the user asks for them, when the skill invocation explicitly includes them, or when a distinct model producer is worth the extra setup and verification cost.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -79,6 +85,8 @@ command -v codex && codex --version
 ```
 
 Use only the CLI that is installed, authenticated, and requested or appropriate for the lane. If a CLI is missing or not authenticated, report `STATUS: unavailable` with the exact reason.
+
+If no external CLI is available, continue with local Codex lanes. Do not stop the task or ask the user to install tools unless the user explicitly required that external lane.
 
 ### Model Selection
 
@@ -113,6 +121,8 @@ For external CLI work:
 
 Do not let an external CLI run with broad permissions unless the user explicitly asked for that risk.
 
+Write external prompts from the same first-principles outline: goal, facts, unknowns, constraints, and success criteria. Treat the output as a proposal to verify, not authority.
+
 ## Advisor Pass
 
 Use an advisor pass before:
@@ -129,6 +139,8 @@ The advisor is read-only. Use a local self-review or a read-only explorer pass. 
 ## Verification
 
 Worker reports are claims, not evidence.
+
+The producer of a change cannot be its only verifier. The architect must run or inspect the proof.
 
 Before reporting completion:
 
