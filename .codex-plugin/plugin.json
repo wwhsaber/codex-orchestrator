@@ -11,13 +11,15 @@
     "orchestration",
     "sub-agents",
     "grok",
-    "claude"
+    "claude",
+    "antigravity",
+    "agy"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Orchestrator",
     "shortDescription": "Delegate implementation and verify evidence",
-    "longDescription": "Orchestrate high-stakes coding: keep Codex as architect, delegate bounded work to sub-agents or optional external CLIs, and verify evidence. Prefer explicit $codex-orchestrator.",
+    "longDescription": "Orchestrate high-stakes coding: keep Codex as architect, delegate bounded work to sub-agents or optional external CLIs including Grok, Claude, and Antigravity, and verify evidence. Prefer explicit $codex-orchestrator.",
     "developerName": "Saber",
     "category": "Productivity",
     "capabilities": [

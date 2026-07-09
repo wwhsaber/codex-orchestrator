@@ -1,6 +1,6 @@
 ---
 name: codex-orchestrator
-description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok or claude. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
+description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok, claude, or agy. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
 ---
 
 # Codex Orchestrator
@@ -45,6 +45,7 @@ Use the cheapest adequate lane:
 - Local edit: small or tightly coupled changes where delegation would add overhead.
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
+- Antigravity external lane: third independent producer through `agy`, defaulting to `Gemini 3.5 Flash (High)`.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -52,7 +53,7 @@ Use the cheapest adequate lane:
 - External CLI lane: when the user asks for a specific external model or wants a non-Codex producer.
 - Advisor pass: commitment-boundary judgment, not implementation.
 
-When this skill is active, "agent" means the skill's preferred delegated agents unless the user says "Codex sub-agent", `worker`, or `explorer`. The preferred order is Grok first, Claude second. Use Codex `worker` / `explorer` only when the user explicitly asks for Codex sub-agents, or after a requested preferred lane is unavailable and the user chooses Codex sub-agents instead.
+When this skill is active, "agent" means the skill's preferred delegated agents unless the user says "Codex sub-agent", `worker`, or `explorer`. The preferred order is Grok first, Claude second, Antigravity third. Use Codex `worker` / `explorer` only when the user explicitly asks for Codex sub-agents, or after a requested preferred lane is unavailable and the user chooses Codex sub-agents instead.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -80,13 +81,14 @@ Avoid sending multiple agents to edit the same files. If two independent impleme
 
 External CLIs are optional. The skill is fully functional with local Codex work and Codex `worker` / `explorer` sub-agents alone.
 
-When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first and Claude second unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
+When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
 Before using an external CLI, run a preflight for the requested lane:
 
 ```bash
 command -v grok && grok --version
 command -v claude && claude --version
+command -v agy && agy --version
 command -v codex && codex --version
 ```
 
@@ -104,15 +106,19 @@ Examples:
 # User specified a model.
 grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet < "$SPEC"
+agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
-# User did not specify a model; use the CLI default.
+# User did not specify a model; use each lane default.
 grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p < "$SPEC"
+agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
-Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`.
+Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
+
+Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
 Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in a separate working directory or worktree, keep permissions conservative, and verify the diff before copying or accepting changes.
 

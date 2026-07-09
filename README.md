@@ -8,7 +8,7 @@ Use it for multi-agent orchestration on high-stakes work: architect-led decompos
 
 None. The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone.
 
-External CLIs (`grok`, `claude`, `codex`) are optional. Use them only when you want a distinct model producer or explicitly ask for that lane.
+External CLIs (`grok`, `claude`, `agy`, `codex`) are optional. Use them only when you want a distinct model producer or explicitly ask for that lane.
 
 If you request an external lane that is not installed or authenticated, the skill should stop and ask whether to install/configure that CLI or continue with Codex `worker` / `explorer` sub-agents.
 
@@ -50,7 +50,7 @@ Use $codex-orchestrator to plan, delegate, and verify this coding task.
 
 - High-stakes or multi-agent work: orchestrate, delegate to sub-agents, run parallel workers, compare implementations, or use an external CLI lane.
 - Recommended: `Use $codex-orchestrator ...` so the skill is selected intentionally.
-- In orchestrator mode, delegated agents use the skill priority: Grok first, Claude second. Say "Codex worker/explorer" when you specifically want Codex runtime sub-agents.
+- In orchestrator mode, delegated agents use the skill priority: Grok first, Claude second, Antigravity third. Say "Codex worker/explorer" when you specifically want Codex runtime sub-agents.
 - Skip for ordinary single-session tasks: fix, implement, refactor, review, or plan alone.
 
 ## Install As A Plugin
@@ -94,7 +94,7 @@ Restart Codex after installing or updating the plugin.
 - Keeps the main Codex session as architect.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
-- Supports optional external CLI lanes such as `grok`, `claude`, and `codex` when those tools are installed and authenticated.
+- Supports optional external CLI lanes such as `grok`, `claude`, `agy`, and `codex` when those tools are installed and authenticated.
 - Requires final verification from the main session before calling work done.
 
 ## Model Selection
@@ -105,15 +105,17 @@ If you specify a model, the skill should pass the model flag to that CLI.
 # User specified a model
 grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet < "$SPEC"
+agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
-# User did not specify a model; use the CLI default
+# User did not specify a model; use each lane default
 grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p < "$SPEC"
+agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
-If you do not specify a model, the CLI default is used.
+If you do not specify a model, the CLI default is used, except Antigravity: the `agy` lane default is `Gemini 3.5 Flash (High)`.
 
 For Grok:
 
@@ -125,6 +127,12 @@ For Claude Code:
 
 ```bash
 claude --help
+```
+
+For Antigravity:
+
+```bash
+agy models
 ```
 
 ## License
