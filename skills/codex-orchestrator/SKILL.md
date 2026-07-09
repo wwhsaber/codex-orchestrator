@@ -43,14 +43,16 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 Use the cheapest adequate lane:
 
 - Local edit: small or tightly coupled changes where delegation would add overhead.
-- Explorer sub-agent: narrow codebase questions that can be answered read-only.
-- Worker sub-agent: well-scoped implementation with a clear write set and verification command.
-- Parallel workers: independent tasks with disjoint files and no ordering dependency.
+- Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
+- Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
+- Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
+- Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
+- Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
 - Independent comparison: high-risk work where two implementations are useful to compare before choosing one.
 - External CLI lane: when the user asks for a specific external model or wants a non-Codex producer.
 - Advisor pass: commitment-boundary judgment, not implementation.
 
-When the user asks for "two agents", "two independent reviews", "two implementations", "compare two approaches", or similar wording under this skill, treat that as a request for independent model producers first: use Grok and Claude external CLI lanes when available. Use Codex `worker` / `explorer` sub-agents for that request only when the user explicitly asks for Codex sub-agents, or after a requested external lane is unavailable and the user chooses Codex sub-agents instead.
+When this skill is active, "agent" means the skill's preferred delegated agents unless the user says "Codex sub-agent", `worker`, or `explorer`. The preferred order is Grok first, Claude second. Use Codex `worker` / `explorer` only when the user explicitly asks for Codex sub-agents, or after a requested preferred lane is unavailable and the user chooses Codex sub-agents instead.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -60,7 +62,7 @@ When a lane is unavailable, say so plainly. Use another lane only after making t
 
 In Codex, `worker` and `explorer` are runtime sub-agent types. They are not loaded from repository `agents/*.md` files. The bundled `agents/openai.yaml` file is only UI metadata for the skill card.
 
-Do not treat a generic request for "agents" as Codex `worker` / `explorer` by default when this skill is active. If the user did not specify Codex sub-agents, check whether the wording implies independent model producers and route to external CLI lanes first.
+Do not treat a generic request for "agents" as Codex `worker` / `explorer` by default when this skill is active. If the user did not specify Codex sub-agents, route delegated work to the preferred external lanes first.
 
 When spawning a worker, include:
 
@@ -78,7 +80,7 @@ Avoid sending multiple agents to edit the same files. If two independent impleme
 
 External CLIs are optional. The skill is fully functional with local Codex work and Codex `worker` / `explorer` sub-agents alone.
 
-Use external CLIs only when the user asks for them, when the skill invocation explicitly includes them, or when a distinct model producer is worth the extra setup and verification cost.
+When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first and Claude second unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
 Before using an external CLI, run a preflight for the requested lane:
 
