@@ -1,6 +1,6 @@
 ---
 name: codex-orchestrator
-description: Architect-style orchestration for Codex coding work. Use when the user asks Codex to act as an architect, delegate implementation, use sub-agents, run parallel workers, compare independent implementations, keep the main session focused on planning and review, use external model CLIs such as grok or claude, or verify worker changes before reporting completion.
+description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok or claude. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
 ---
 
 # Codex Orchestrator

@@ -1,7 +1,7 @@
 {
   "name": "codex-orchestrator",
   "version": "0.1.0",
-  "description": "Architect-style orchestration for Codex coding work.",
+  "description": "Multi-agent orchestration for high-stakes Codex coding work.",
   "author": {
     "name": "Saber"
   },
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "Codex Orchestrator",
     "shortDescription": "Delegate implementation and verify evidence",
-    "longDescription": "Plan coding work, delegate bounded tasks to sub-agents or external CLIs, and verify evidence before reporting completion.",
+    "longDescription": "Orchestrate high-stakes coding: keep Codex as architect, delegate bounded work to sub-agents or optional external CLIs, and verify evidence. Prefer explicit $codex-orchestrator.",
     "developerName": "Saber",
     "category": "Productivity",
     "capabilities": [
@@ -25,7 +25,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use $codex-orchestrator to plan, delegate, and verify this coding task."
+      "Use $codex-orchestrator to orchestrate this task: plan, delegate bounded work, and verify evidence."
     ]
   }
 }

@@ -2,7 +2,7 @@
 
 Architect-style orchestration plugin for Codex.
 
-Use it when you want Codex to plan, delegate implementation, compare worker output, call external model CLIs, and verify evidence before reporting completion.
+Use it for multi-agent orchestration on high-stakes work: architect-led decomposition, delegated implementation, worker comparison, optional external model CLIs, and evidence-backed verification. Prefer explicit `$codex-orchestrator` for that path.
 
 ## Dependencies
 
@@ -45,6 +45,12 @@ Restart Codex, then invoke:
 ```text
 Use $codex-orchestrator to plan, delegate, and verify this coding task.
 ```
+
+### When to use
+
+- High-stakes or multi-agent work: orchestrate, delegate to sub-agents, run parallel workers, compare implementations, or use an external CLI lane.
+- Recommended: `Use $codex-orchestrator ...` so the skill is selected intentionally.
+- Skip for ordinary single-session tasks: fix, implement, refactor, review, or plan alone.
 
 ## Install As A Plugin
 
