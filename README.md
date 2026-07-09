@@ -1,15 +1,31 @@
 # Codex Orchestrator
 
-Architect-style orchestration skill for Codex.
+Architect-style orchestration plugin for Codex.
 
 Use it when you want Codex to plan, delegate implementation, compare worker output, call external model CLIs, and verify evidence before reporting completion.
 
-## Install
+## Structure
 
-Clone this repo into your Codex skills directory:
+```text
+codex-orchestrator/
+├── .codex-plugin/plugin.json
+├── skills/
+│   └── codex-orchestrator/
+│       ├── SKILL.md
+│       └── agents/openai.yaml
+├── README.md
+└── LICENSE
+```
+
+This mirrors the plugin shape used by Claude Code plugins: a root plugin manifest plus one or more skills under `skills/`.
+
+## Install As A Skill
+
+The simplest install path is to copy the nested skill into your Codex skills directory:
 
 ```bash
-git clone <your-repo-url> ~/.codex/skills/codex-orchestrator
+git clone <your-repo-url> /tmp/codex-orchestrator
+cp -R /tmp/codex-orchestrator/skills/codex-orchestrator ~/.codex/skills/codex-orchestrator
 ```
 
 Restart Codex, then invoke:
@@ -17,6 +33,10 @@ Restart Codex, then invoke:
 ```text
 Use $codex-orchestrator to plan, delegate, and verify this coding task.
 ```
+
+## Install As A Plugin
+
+This repo also includes `.codex-plugin/plugin.json` for Codex plugin distribution. Install it through your normal Codex plugin marketplace or local plugin flow.
 
 ## What It Does
 
