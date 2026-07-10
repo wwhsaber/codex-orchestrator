@@ -94,7 +94,31 @@ command -v codex && codex --version
 
 Use only the CLI that is installed, authenticated, and requested or appropriate for the lane. If a CLI is missing or not authenticated, report `STATUS: unavailable` with the exact reason.
 
-If a requested external CLI is unavailable, stop before doing equivalent work another way. Ask whether to install/configure that CLI or use Codex `worker` / `explorer` sub-agents instead.
+If preflight fails, or lifecycle evidence proves that a requested external CLI is terminally unavailable, stop before doing equivalent work another way. Ask whether to install/configure that CLI or use Codex `worker` / `explorer` sub-agents instead. Missing stdout is not enough to make that determination.
+
+### Execution Isolation
+
+For write-producing external CLI work:
+
+- Run in the current working directory by default. Create or select a separate worktree only when the user explicitly asks for one.
+- Do not add a CLI sandbox merely because the task edits files. Use one only when the user explicitly requests it and it is compatible with that CLI's background and tool execution settings.
+- A sandbox startup/configuration error is a lane setup failure; it is not evidence that a live agent should be stopped.
+- Give the agent precise target files and `rg` patterns. Do not invite broad recursive repository inspection, especially through generated directories such as `node_modules`, `dist`, or build artifacts.
+
+### External Agent Lifecycle
+
+A quiet terminal is not proof that an external agent has stopped. Headless wrappers can return an early text chunk while the remote session or a tool call remains active.
+
+When an external lane is running:
+
+1. Retain the process and session identifiers, the latest agent update, active tool call IDs, and its declared todo/task state where the CLI exposes them.
+2. Monitor actual lifecycle evidence: process state, session updates, tool-call status, todo/task progress, and the target working-directory diff. Lack of stdout alone is not a failure signal.
+3. Poll long-running work at a measured cadence, normally every 30-60 seconds. Record what changed between polls so a later handoff can continue from evidence instead of guessing.
+4. Do not cancel or kill a lane while it has an in-progress tool call, an active remote session, or pending declared work solely because it appears quiet or exceeds a short local timeout.
+5. A lane may be terminated only when the user asks to stop, the CLI reports a terminal failure/cancellation, the process and session are both terminal, or repeated polling shows no active work and no progress for a documented threshold. Before termination, report the evidence and preserve the session details.
+6. Do not change a CLI's permission mode or enable bypass-style approval settings as a reaction to an unclear stall. Diagnose lifecycle state first.
+
+If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
 ### Model Selection
 
@@ -120,16 +144,18 @@ Antigravity is the exception to the generic default-model rule: for the `agy` la
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
-Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in a separate working directory or worktree, keep permissions conservative, and verify the diff before copying or accepting changes.
+Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. Keep permissions conservative and verify the diff before copying or accepting changes.
 
 For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
-2. Invoke the CLI from the repo root.
-3. Capture the final message or log.
-4. Inspect the actual diff.
-5. Run verification yourself.
-6. Report status, changed files, verification output, and any gaps.
+2. Record the current working directory. Use a separate path only when the user explicitly requested it.
+3. Invoke the CLI and retain its process/session identifiers.
+4. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
+5. Capture its final message/log and the last active-task evidence.
+6. Inspect the actual diff.
+7. Run verification yourself.
+8. Report status, changed files, verification output, and any gaps.
 
 Do not let an external CLI run with broad permissions unless the user explicitly asked for that risk.
 
@@ -161,6 +187,7 @@ Before reporting completion:
 - Run the verification command yourself.
 - If verification fails, either fix locally if the issue is small and within scope, or send a corrected spec back to the worker.
 - If verification cannot be run, state exactly why and what manual inspection was performed.
+- For an external agent, confirm that the process, session, and active tool state are terminal before treating its final text as completion evidence.
 
 Never report completion from a worker or CLI message alone.
 
