@@ -104,20 +104,20 @@ If you specify a model, the skill should pass the model flag to that CLI.
 ```bash
 # User specified a model
 grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet < "$SPEC"
+claude -p --model sonnet --effort max < "$SPEC"
 agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default
 grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p < "$SPEC"
+claude -p --effort max < "$SPEC"
 agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
 For Grok implementation lanes, use the tool whitelist shown above instead of broad shell access. Do not combine `--check` with `--no-subagents`.
 
-If you do not specify a model, the CLI default is used, except Antigravity: the `agy` lane default is `Gemini 3.5 Flash (High)`.
+If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--effort max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
 
 For Grok:
 
@@ -138,6 +138,14 @@ agy models
 ```
 
 For external lanes, prefer visible logs: stream output where the user can watch it while saving the same output with `tee`. Codex should not summarize routine log output; inspect the saved log only when the lane exits, fails, appears stuck, or the user asks for status.
+
+Claude Code `-p` text output can stay quiet until final output. If a Claude lane appears stuck, inspect it with filtered stream JSON instead of raw stream output:
+
+```bash
+claude -p --effort max --verbose --output-format stream-json --permission-mode acceptEdits < "$SPEC" 2>&1 \
+  | tee "$LOG" \
+  | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
+```
 
 ## License
 

@@ -120,7 +120,7 @@ Edit-capable examples:
 
 ```bash
 grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --permission-mode acceptEdits < "$SPEC" 2>&1 | tee "$LOG"
+claude -p --effort max --permission-mode acceptEdits < "$SPEC" 2>&1 | tee "$LOG"
 agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
 ```
 
@@ -128,7 +128,7 @@ Read-only examples:
 
 ```bash
 grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p < "$SPEC" 2>&1 | tee "$LOG"
+claude -p --effort max < "$SPEC" 2>&1 | tee "$LOG"
 agy --print --mode plan --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
 ```
 
@@ -168,6 +168,14 @@ LOG=$(mktemp -t codex-orchestrator-lane.XXXXXX)
 grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 ```
 
+Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--effort max` for the Claude lane. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
+
+```bash
+claude -p --effort max --verbose --output-format stream-json --permission-mode acceptEdits < "$SPEC" 2>&1 \
+  | tee "$LOG" \
+  | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
+```
+
 ### Model Selection
 
 If the user names a model, pass the model flag for that CLI. If the user does not name a model, omit the model flag and use the CLI default.
@@ -177,18 +185,18 @@ Examples:
 ```bash
 # User specified a model for write-producing work.
 grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --permission-mode acceptEdits < "$SPEC"
+claude -p --model sonnet --effort max --permission-mode acceptEdits < "$SPEC"
 agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
 grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --permission-mode acceptEdits < "$SPEC"
+claude -p --effort max --permission-mode acceptEdits < "$SPEC"
 agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 
-Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
+Claude uses `--effort max` by default for this skill's Claude lane unless the user asks for a lower effort. Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
