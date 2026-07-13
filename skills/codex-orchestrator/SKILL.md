@@ -122,13 +122,14 @@ If the user assigned implementation to a named external agent, that agent remain
 
 ### Visible Logs
 
-Do not hide an external lane behind output redirection alone. The main session needs live evidence of progress, plus a saved log for review.
+Do not hide an external lane behind output redirection alone. The user should be able to watch the live output, and the main session should keep a saved log path for later checks.
 
 For external CLI invocations:
 
-- Save stdout/stderr to a unique log file and show it to the main session at the same time, normally with `tee`.
+- Save stdout/stderr to a unique log file and show it in user-visible terminal output at the same time, normally with `tee`.
 - Keep the log path, prompt path, process ID, and exit status in the final lane report.
-- Do not read or summarize log lines during routine lifecycle polls. Inspect the latest log lines only when the lane appears stuck, exits, fails, or the user asks for status.
+- Do not read, restate, or summarize routine log output. The user can watch it directly.
+- Inspect the saved log only when the lane appears stuck, exits, fails, or the user asks for status.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
 
 Example:

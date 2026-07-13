@@ -135,7 +135,7 @@ For Antigravity:
 agy models
 ```
 
-For external lanes, prefer visible logs: stream output to the main session while saving the same output with `tee`. Codex should inspect the log when the lane exits, fails, appears stuck, or the user asks for status.
+For external lanes, prefer visible logs: stream output where the user can watch it while saving the same output with `tee`. Codex should not summarize routine log output; inspect the saved log only when the lane exits, fails, appears stuck, or the user asks for status.
 
 ## License
 
