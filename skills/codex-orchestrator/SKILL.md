@@ -101,9 +101,36 @@ If preflight fails, or lifecycle evidence proves that a requested external CLI i
 For write-producing external CLI work:
 
 - Run in the current working directory by default. Create or select a separate worktree only when the user explicitly asks for one.
+- Give the lane edit permission when the spec asks it to modify files. A write-producing lane without edit permission is a setup error, not an implementation attempt.
 - Do not add a CLI sandbox merely because the task edits files. Use one only when the user explicitly requests it and it is compatible with that CLI's background and tool execution settings.
 - A sandbox startup/configuration error is a lane setup failure; it is not evidence that a live agent should be stopped.
 - Give the agent precise target files and `rg` patterns. Do not invite broad recursive repository inspection, especially through generated directories such as `node_modules`, `dist`, or build artifacts.
+
+### Execution Mode
+
+Match permissions to the lane contract:
+
+- Read-only review or advisor lane: keep default or plan/read-only behavior.
+- Write-producing implementation lane: pass that CLI's normal edit-accepting mode.
+- Never use bypass/all-approval modes unless the user explicitly asks for that risk.
+- If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
+- For Grok write-producing lanes, prefer a tool whitelist over `--allow` rules: give file read/search, todo, and edit tools; do not expose shell tools. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
+
+Edit-capable examples:
+
+```bash
+grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+claude -p --permission-mode acceptEdits < "$SPEC" 2>&1 | tee "$LOG"
+agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
+```
+
+Read-only examples:
+
+```bash
+grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+claude -p < "$SPEC" 2>&1 | tee "$LOG"
+agy --print --mode plan --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
+```
 
 ### External Agent Lifecycle
 
@@ -148,16 +175,16 @@ If the user names a model, pass the model flag for that CLI. If the user does no
 Examples:
 
 ```bash
-# User specified a model.
-grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet < "$SPEC"
-agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
+# User specified a model for write-producing work.
+grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --model sonnet --permission-mode acceptEdits < "$SPEC"
+agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
-# User did not specify a model; use each lane default.
-grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p < "$SPEC"
-agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
+# User did not specify a model; use each lane default for write-producing work.
+grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --permission-mode acceptEdits < "$SPEC"
+agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
 

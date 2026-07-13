@@ -103,17 +103,19 @@ If you specify a model, the skill should pass the model flag to that CLI.
 
 ```bash
 # User specified a model
-grok -m grok-4.5 --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet < "$SPEC"
 agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default
-grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p < "$SPEC"
 agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --cd "$(pwd)" - < "$SPEC"
 ```
+
+For Grok implementation lanes, use the tool whitelist shown above instead of broad shell access. Do not combine `--check` with `--no-subagents`.
 
 If you do not specify a model, the CLI default is used, except Antigravity: the `agy` lane default is `Gemini 3.5 Flash (High)`.
 
