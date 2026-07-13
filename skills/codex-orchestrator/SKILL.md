@@ -128,7 +128,7 @@ For external CLI invocations:
 
 - Save stdout/stderr to a unique log file and show it to the main session at the same time, normally with `tee`.
 - Keep the log path, prompt path, process ID, and exit status in the final lane report.
-- For long-running lanes, read the latest log lines during each lifecycle poll and summarize what changed.
+- Do not read or summarize log lines during routine lifecycle polls. Inspect the latest log lines only when the lane appears stuck, exits, fails, or the user asks for status.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
 
 Example:
