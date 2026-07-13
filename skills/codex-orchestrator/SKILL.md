@@ -120,6 +120,26 @@ When an external lane is running:
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
+### Visible Logs
+
+Do not hide an external lane behind output redirection alone. The main session needs live evidence of progress, plus a saved log for review.
+
+For external CLI invocations:
+
+- Save stdout/stderr to a unique log file and show it to the main session at the same time, normally with `tee`.
+- Keep the log path, prompt path, process ID, and exit status in the final lane report.
+- For long-running lanes, read the latest log lines during each lifecycle poll and summarize what changed.
+- Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
+
+Example:
+
+```bash
+SPEC=$(mktemp -t codex-orchestrator-spec.XXXXXX)
+LOG=$(mktemp -t codex-orchestrator-lane.XXXXXX)
+
+grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+```
+
 ### Model Selection
 
 If the user names a model, pass the model flag for that CLI. If the user does not name a model, omit the model flag and use the CLI default.
@@ -150,12 +170,13 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Invoke the CLI and retain its process/session identifiers.
-4. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
-5. Capture its final message/log and the last active-task evidence.
-6. Inspect the actual diff.
-7. Run verification yourself.
-8. Report status, changed files, verification output, and any gaps.
+3. Invoke the CLI with visible logging: stream output to the main session and save the same output to a unique log file.
+4. Retain its process/session identifiers, prompt path, log path, and exit status.
+5. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
+6. Capture its final message/log and the last active-task evidence.
+7. Inspect the actual diff.
+8. Run verification yourself.
+9. Report status, changed files, verification output, log path, and any gaps.
 
 Do not let an external CLI run with broad permissions unless the user explicitly asked for that risk.
 

@@ -135,6 +135,8 @@ For Antigravity:
 agy models
 ```
 
+For external lanes, prefer visible logs: stream output to the main session while saving the same output with `tee`, so Codex can monitor progress and still review the full log later.
+
 ## License
 
 MIT
