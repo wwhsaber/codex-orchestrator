@@ -103,19 +103,19 @@ If you specify a model, the skill should pass the model flag to that CLI.
 
 ```bash
 # User specified a model
-grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high < "$SPEC"
-agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
-codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
+grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
+agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default
-grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --effort high < "$SPEC"
-agy --print --model "Gemini 3.5 Flash (High)" < "$SPEC"
-codex exec --cd "$(pwd)" - < "$SPEC"
+grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
+agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-For Grok implementation lanes, use the tool whitelist shown above instead of broad shell access. Do not combine `--check` with `--no-subagents`.
+For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Do not combine Grok `--check` with `--no-subagents`.
 
 If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--effort high` unless you ask for another Claude effort such as `max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
 
@@ -142,7 +142,7 @@ For external lanes, prefer visible logs: stream output where the user can watch 
 Claude Code `-p` text output can stay quiet until final output. If a Claude lane appears stuck, inspect it with filtered stream JSON instead of raw stream output:
 
 ```bash
-claude -p --effort high --verbose --output-format stream-json --permission-mode acceptEdits < "$SPEC" 2>&1 \
+claude -p --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
   | tee "$LOG" \
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```

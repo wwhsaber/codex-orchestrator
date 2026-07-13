@@ -101,7 +101,7 @@ If preflight fails, or lifecycle evidence proves that a requested external CLI i
 For write-producing external CLI work:
 
 - Run in the current working directory by default. Create or select a separate worktree only when the user explicitly asks for one.
-- Give the lane edit permission when the spec asks it to modify files. A write-producing lane without edit permission is a setup error, not an implementation attempt.
+- Give the lane broad write-lane permissions when the spec asks it to modify files. A write-producing lane without edit and tool permission is a setup error, not an implementation attempt.
 - Do not add a CLI sandbox merely because the task edits files. Use one only when the user explicitly requests it and it is compatible with that CLI's background and tool execution settings.
 - A sandbox startup/configuration error is a lane setup failure; it is not evidence that a live agent should be stopped.
 - Give the agent precise target files and `rg` patterns. Do not invite broad recursive repository inspection, especially through generated directories such as `node_modules`, `dist`, or build artifacts.
@@ -111,17 +111,16 @@ For write-producing external CLI work:
 Match permissions to the lane contract:
 
 - Read-only review or advisor lane: keep default or plan/read-only behavior.
-- Write-producing implementation lane: pass that CLI's normal edit-accepting mode.
-- Never use bypass/all-approval modes unless the user explicitly asks for that risk.
+- Write-producing implementation lane: pass that CLI's broad edit and tool approval mode to avoid permission stalls.
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
-- For Grok write-producing lanes, prefer a tool whitelist over `--allow` rules: give file read/search, todo, and edit tools; do not expose shell tools. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
+- For Grok write-producing lanes, use `--permission-mode bypassPermissions`. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
 Edit-capable examples:
 
 ```bash
-grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --effort high --permission-mode acceptEdits < "$SPEC" 2>&1 | tee "$LOG"
-agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
+grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+claude -p --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
+agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
 ```
 
 Read-only examples:
@@ -171,7 +170,7 @@ grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG
 Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--effort high` for the Claude lane unless the user asks for a different Claude effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
 
 ```bash
-claude -p --effort high --verbose --output-format stream-json --permission-mode acceptEdits < "$SPEC" 2>&1 \
+claude -p --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
   | tee "$LOG" \
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```
@@ -184,23 +183,23 @@ Examples:
 
 ```bash
 # User specified a model for write-producing work.
-grok -m grok-4.5 --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high --permission-mode acceptEdits < "$SPEC"
-agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
-codex exec --model gpt-5.5 --cd "$(pwd)" - < "$SPEC"
+grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
+agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
-grok --permission-mode acceptEdits --tools read_file,grep,todo_write,search_replace --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --effort high --permission-mode acceptEdits < "$SPEC"
-agy --print --mode accept-edits --model "Gemini 3.5 Flash (High)" < "$SPEC"
-codex exec --cd "$(pwd)" - < "$SPEC"
+grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
+agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
 Claude uses `--effort high` by default for this skill's Claude lane unless the user asks for another Claude effort such as `max`. Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
-Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. Keep permissions conservative and verify the diff before copying or accepting changes.
+Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. For write-producing work, pass `--dangerously-bypass-approvals-and-sandbox`; always verify the diff before accepting changes.
 
 For external CLI work:
 
@@ -214,7 +213,7 @@ For external CLI work:
 8. Run verification yourself.
 9. Report status, changed files, verification output, log path, and any gaps.
 
-Do not let an external CLI run with broad permissions unless the user explicitly asked for that risk.
+Use broad permissions only for write-producing lanes. Keep read-only reviews, advisor passes, and preflight checks on read-only or default modes.
 
 Write external prompts from the same first-principles outline: goal, facts, unknowns, constraints, and success criteria. Treat the output as a proposal to verify, not authority.
 
