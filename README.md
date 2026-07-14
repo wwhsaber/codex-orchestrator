@@ -108,6 +108,10 @@ Claude broker sub-agent -> claude
 Antigravity broker sub-agent -> agy / Gemini
 ```
 
+For Codex Desktop's visible sub-agent list, create and publish fixed Workspace Agents named `Grok Broker`, `Claude Broker`, and `Gemini Broker`. The repository's `agents/openai.yaml` file is only skill-card metadata; it does not create runnable entries in that left-side list.
+
+When those fixed agents exist, the skill should use them before creating an anonymous runtime broker. Use a runtime broker only when the matching fixed Workspace Agent is not present or when the user explicitly asks for a temporary Codex sub-agent.
+
 The broker sub-agent only starts or monitors the command, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
 Raw CLI logs must stay visible to the user. If the broker sub-agent's stdout is not shown directly in the main UI, the main Codex session starts the external CLI with `tee`, and the broker sub-agent only monitors the pid and log path.

@@ -45,6 +45,14 @@ Use a lightweight broker sub-agent for external CLI lanes when the runtime can s
 
 The broker sub-agent exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
 
+Prefer fixed Workspace Broker Agents when they are available in Codex's visible sub-agent list:
+
+- `Grok Broker` controls only the Grok CLI lane.
+- `Claude Broker` controls only the Claude CLI lane.
+- `Gemini Broker` controls only the Antigravity `agy` Gemini lane.
+
+Use these named Workspace Agents before creating an anonymous runtime broker. A runtime broker is acceptable only when the fixed Workspace Agent is not present or the user explicitly asks for a temporary Codex sub-agent.
+
 Visibility rule: the user must be able to watch raw external CLI output. In Codex, a normal sub-agent may show only "thinking" or a compact status instead of its terminal stdout. If broker stdout is not directly visible to the user, do not let the broker own the external CLI process. The main session must start the CLI command with `tee` in the visible terminal, then the broker may monitor the saved log path, pid, and exit state.
 
 Broker duties:
