@@ -45,15 +45,15 @@ Use a lightweight broker sub-agent for external CLI lanes when the runtime can s
 
 The broker sub-agent exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
 
-Codex Desktop's visible sub-agent list shows runtime sub-agents for the current task. Published Workspace Agents do not automatically appear in that active runtime list, and the runtime sub-agent API assigns the visible nickname.
+Codex Desktop's visible sub-agent list shows runtime sub-agents for the current task. Published Workspace Agents do not automatically appear in that active runtime list.
 
-When the user wants the broker to appear in that list, spawn a runtime sub-agent and make the broker role explicit in the first line of its prompt:
+When the available multi-agent surface supports a visible task name or agent label, spawn runtime broker agents with these exact labels:
 
-- `Grok Broker` controls only the Grok CLI lane.
-- `Claude Broker` controls only the Claude CLI lane.
-- `Gemini Broker` controls only the Antigravity `agy` Gemini lane.
+- `Grok broker` controls only the Grok CLI lane.
+- `Claude broker` controls only the Claude CLI lane.
+- `Gemini broker` controls only the Antigravity `agy` Gemini lane.
 
-After spawning the runtime sub-agent, report the mapping from Codex's assigned nickname to the broker role, such as `Copernicus -> Gemini Broker`. Do not imply that repository `agents/*.md`, `agents/openai.yaml`, or published Workspace Agents can control the runtime nickname unless a future Codex API exposes that capability.
+When the exposed runtime sub-agent API does not provide a visible label field and only returns an assigned nickname, make the broker role explicit in the first line of the prompt and report the mapping from Codex's assigned nickname to the broker role, such as `Boole -> Gemini broker`. Do not imply that repository `agents/*.md`, `agents/openai.yaml`, or published Workspace Agents can control the runtime nickname.
 
 Visibility rule: the user must be able to watch raw external CLI output. In Codex, a normal sub-agent may show only "thinking" or a compact status instead of its terminal stdout. If broker stdout is not directly visible to the user, do not let the broker own the external CLI process. The main session must start the CLI command with `tee` in the visible terminal, then the broker may monitor the saved log path, pid, and exit state.
 
@@ -263,7 +263,7 @@ For external CLI work:
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Write a unique log path.
-4. If the user wants a visible broker in the active sub-agent list, spawn exactly one runtime broker sub-agent for the lane, passing lane, command, cwd, prompt path, and log path. Treat Codex's assigned nickname as the UI name and report its mapping to the broker role.
+4. If the user wants a visible broker in the active sub-agent list, spawn exactly one runtime broker sub-agent for the lane, passing lane, command, cwd, prompt path, and log path. Use a visible task label such as `Gemini broker` when the multi-agent surface supports labels; otherwise report Codex's assigned nickname mapping to the broker role.
 5. Require broker status vocabulary only: `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`.
 6. If broker stdout is not user-visible, start the CLI from the main session with `tee`, then pass pid and log path to the broker for monitoring.
 7. Retain process/session identifiers, prompt path, log path, and exit status from broker reports.
