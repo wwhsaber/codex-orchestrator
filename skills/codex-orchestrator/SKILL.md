@@ -20,7 +20,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For external CLI work, start one lightweight broker sub-agent per external lane when a sub-agent surface is available.
+4. For external CLI work, keep the external CLI log visible to the user. Use one lightweight broker sub-agent per lane only when its stdout is user-visible, or use it only to monitor a process started by the main session.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Continue useful local work while sub-agents run.
 7. Review returned changes before integrating them.
@@ -45,10 +45,12 @@ Use a lightweight broker sub-agent for external CLI lanes when the runtime can s
 
 The broker sub-agent exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
 
+Visibility rule: the user must be able to watch raw external CLI output. In Codex, a normal sub-agent may show only "thinking" or a compact status instead of its terminal stdout. If broker stdout is not directly visible to the user, do not let the broker own the external CLI process. The main session must start the CLI command with `tee` in the visible terminal, then the broker may monitor the saved log path, pid, and exit state.
+
 Broker duties:
 
 - Receive lane name, command, cwd, spec path, log path, and expected mode.
-- Start exactly one external CLI process.
+- Start exactly one external CLI process only when broker stdout is user-visible; otherwise monitor the process started by the main session.
 - Keep pid, prompt path, log path, exit code, and last status.
 - Stream output with `tee` so the user can watch logs directly.
 - Report only state changes, terminal states, and attention-needed states.
@@ -116,7 +118,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-When an external lane is expected to run longer than a quick single response, use broker mode: the main session writes the spec and command, then hands lifecycle management to exactly one broker sub-agent for that lane. If a sub-agent surface is not available, run the same command locally and follow the broker status vocabulary in the main session.
+When an external lane is expected to run longer than a quick single response, use broker mode only if raw CLI output remains visible to the user. If a broker sub-agent cannot expose stdout directly, the main session writes the spec, starts the command with visible `tee`, and gives exactly one broker sub-agent the pid and log path to monitor. If a sub-agent surface is not available, run the command locally and follow the broker status vocabulary in the main session.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -251,9 +253,9 @@ For external CLI work:
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Write a unique log path.
-4. Start exactly one broker sub-agent for the lane when available, passing lane, command, cwd, prompt path, and log path.
+4. If broker stdout is user-visible, start exactly one broker sub-agent for the lane, passing lane, command, cwd, prompt path, and log path.
 5. Require broker status vocabulary only: `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`.
-6. Let the broker invoke the CLI with visible logging: stream output to the user and save the same output to the log file.
+6. If broker stdout is not user-visible, start the CLI from the main session with `tee`, then pass pid and log path to the broker for monitoring.
 7. Retain process/session identifiers, prompt path, log path, and exit status from broker reports.
 8. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
 9. Capture final text/log and the last active-task evidence.
