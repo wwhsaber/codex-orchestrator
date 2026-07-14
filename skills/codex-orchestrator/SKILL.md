@@ -20,7 +20,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For external CLI work, keep the external CLI log visible to the user. Use one lightweight broker sub-agent per lane only when its stdout is user-visible, or use it only to monitor a process started by the main session.
+4. For external CLI work, start the named external CLI lane from the main session with `tee` and a broker status line. Use a Codex runtime broker sub-agent only when the user explicitly asks for a visible Codex sub-agent and the current multi-agent surface supports that UI.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Continue useful local work while sub-agents run.
 7. Review returned changes before integrating them.
@@ -41,26 +41,39 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 
 ## Broker Lanes
 
-Use a lightweight broker sub-agent for external CLI lanes when the runtime can start a narrow sub-agent. "Broker" is a role assigned to a sub-agent, not a separate system. The broker is one-to-one with a single external lane: one Grok broker sub-agent controls only Grok, one Claude broker sub-agent controls only Claude, and one Antigravity broker sub-agent controls only `agy`.
+Use a lightweight broker role for external CLI lanes. "Broker" means lifecycle control for one lane; it does not always mean a Codex runtime sub-agent. The default broker path is the `b66b746` style: the main session starts the external CLI command, streams logs with `tee`, and reports structured status lines.
 
-The broker sub-agent exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
+The broker is one-to-one with a single external lane: one Grok broker controls only Grok, one Claude broker controls only Claude, and one Antigravity broker controls only `agy`.
 
-Codex Desktop's visible sub-agent list shows runtime sub-agents for the current task. Published Workspace Agents do not automatically appear in that active runtime list.
+The broker exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
 
-When the available multi-agent surface supports a visible task name or agent label, spawn runtime broker agents with these exact labels:
+Default broker path:
+
+- The main session writes the spec and log path.
+- The main session starts the external CLI command with `tee`.
+- The main session prints `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`.
+- The main session monitors process state, log path, and working-tree diff.
+- Do not spawn a Codex runtime sub-agent just to call Grok, Claude, or `agy`.
+
+Codex runtime broker path:
+
+- Use this only when the user explicitly asks for a visible Codex sub-agent broker, or asks for multiple visible broker agents in the active sub-agent UI.
+- Use this only when the current multi-agent surface supports visible labels or exposes stdout well enough for the user to watch logs.
+- When visible task labels are supported, spawn runtime broker agents with these exact labels:
 
 - `Grok broker` controls only the Grok CLI lane.
 - `Claude broker` controls only the Claude CLI lane.
 - `Gemini broker` controls only the Antigravity `agy` Gemini lane.
 
-When the exposed runtime sub-agent API does not provide a visible label field and only returns an assigned nickname, make the broker role explicit in the first line of the prompt and report the mapping from Codex's assigned nickname to the broker role, such as `Boole -> Gemini broker`. Do not imply that repository `agents/*.md`, `agents/openai.yaml`, or published Workspace Agents can control the runtime nickname.
+If the current runtime sub-agent API only returns an assigned nickname and has no visible label field, do not create a runtime broker solely for display. Run the default broker path instead. Do not imply that repository `agents/*.md`, `agents/openai.yaml`, or published Workspace Agents can control runtime nicknames.
 
-Visibility rule: the user must be able to watch raw external CLI output. In Codex, a normal sub-agent may show only "thinking" or a compact status instead of its terminal stdout. If broker stdout is not directly visible to the user, do not let the broker own the external CLI process. The main session must start the CLI command with `tee` in the visible terminal, then the broker may monitor the saved log path, pid, and exit state.
+Visibility rule: the user must be able to watch raw external CLI output. In Codex, a normal sub-agent may show only "thinking" or a compact status instead of its terminal stdout. If broker stdout is not directly visible to the user, do not let a runtime broker own the external CLI process. Use the default broker path from the main session.
 
 Broker duties:
 
 - Receive lane name, command, cwd, spec path, log path, and expected mode.
-- Start exactly one external CLI process only when broker stdout is user-visible; otherwise monitor the process started by the main session.
+- Start exactly one external CLI process from the main session by default.
+- Let a runtime broker start the process only when the user explicitly asked for a visible Codex sub-agent broker and its stdout is user-visible.
 - Keep pid, prompt path, log path, exit code, and last status.
 - Stream output with `tee` so the user can watch logs directly.
 - Report only state changes, terminal states, and attention-needed states.
@@ -128,7 +141,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-When an external lane is expected to run longer than a quick single response, use broker mode only if raw CLI output remains visible to the user. If a broker sub-agent cannot expose stdout directly, the main session writes the spec, starts the command with visible `tee`, and gives exactly one broker sub-agent the pid and log path to monitor. If a sub-agent surface is not available, run the command locally and follow the broker status vocabulary in the main session.
+When an external lane is expected to run longer than a quick single response, use the default broker path: the main session writes the spec, starts the command with visible `tee`, and follows the broker status vocabulary. Use a runtime broker sub-agent only when the user explicitly asks for a visible Codex sub-agent broker and the current surface can show the lane clearly.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -263,10 +276,10 @@ For external CLI work:
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Write a unique log path.
-4. If the user wants a visible broker in the active sub-agent list, spawn exactly one runtime broker sub-agent for the lane, passing lane, command, cwd, prompt path, and log path. Use a visible task label such as `Gemini broker` when the multi-agent surface supports labels; otherwise report Codex's assigned nickname mapping to the broker role.
-5. Require broker status vocabulary only: `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`.
-6. If broker stdout is not user-visible, start the CLI from the main session with `tee`, then pass pid and log path to the broker for monitoring.
-7. Retain process/session identifiers, prompt path, log path, and exit status from broker reports.
+4. Start the external CLI from the main session with `tee`.
+5. Print `STARTED lane=<name> pid=<pid> log=<path> prompt=<path>`.
+6. Use a runtime broker sub-agent only when the user explicitly asks for a visible Codex sub-agent broker and the current multi-agent surface supports visible labels or visible stdout.
+7. Retain process/session identifiers, prompt path, log path, and exit status.
 8. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
 9. Capture final text/log and the last active-task evidence.
 10. Inspect the actual diff.

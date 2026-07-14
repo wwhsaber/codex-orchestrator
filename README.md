@@ -100,19 +100,17 @@ Restart Codex after installing or updating the plugin.
 
 ## Broker Mode
 
-External CLI lanes can run through one broker sub-agent per lane. "Broker" is the role assigned to that sub-agent, not a separate system:
+External CLI lanes use one broker role per lane. In the default path, the main Codex session starts the external CLI command, streams logs with `tee`, and prints lifecycle status:
 
 ```text
-Grok broker sub-agent -> grok
-Claude broker sub-agent -> claude
-Antigravity broker sub-agent -> agy / Gemini
+Grok broker -> grok
+Claude broker -> claude
+Antigravity broker -> agy / Gemini
 ```
 
-Codex Desktop's visible sub-agent list shows runtime sub-agents for the current task. Published Workspace Agents named `Grok Broker`, `Claude Broker`, and `Gemini Broker` do not automatically appear in that active list. The repository's `agents/openai.yaml` file is only skill-card metadata; it does not create runnable entries in that left-side list.
+Codex runtime sub-agent brokers are optional. Use them only when the user explicitly asks for visible Codex sub-agent brokers and the current multi-agent surface supports clear labels or visible stdout. When labels are supported, use `Grok broker`, `Claude broker`, and `Gemini broker`.
 
-When the multi-agent surface supports visible task labels, use `Grok broker`, `Claude broker`, and `Gemini broker` as the visible broker labels. If the current runtime only returns an assigned nickname, state the broker role in the prompt and report the mapping, for example `Boole -> Gemini broker`.
-
-The broker sub-agent only starts or monitors the command, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
+The broker only starts or monitors the command, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
 Raw CLI logs must stay visible to the user. If the broker sub-agent's stdout is not shown directly in the main UI, the main Codex session starts the external CLI with `tee`, and the broker sub-agent only monitors the pid and log path.
 
