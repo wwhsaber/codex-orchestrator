@@ -20,11 +20,12 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
-5. Continue useful local work while sub-agents run.
-6. Review returned changes before integrating them.
-7. Run the verification command yourself.
-8. Report only what the diff and verification evidence support.
+4. For external CLI work, start one lightweight broker per external lane when a broker-capable sub-agent surface is available.
+5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
+6. Continue useful local work while sub-agents run.
+7. Review returned changes before integrating them.
+8. Run the verification command yourself.
+9. Report only what the diff and verification evidence support.
 
 ## Five-Part Spec
 
@@ -37,6 +38,36 @@ Every delegated task must include all five parts. The worker should not need pri
 5. Verification: command or manual check that proves the task works.
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
+
+## Broker Lanes
+
+Use a lightweight broker for external CLI lanes when the runtime can start a narrow sub-agent. The broker is one-to-one with a single external lane: one Grok broker controls only Grok, one Claude broker controls only Claude, and one Antigravity broker controls only `agy`.
+
+The broker exists to reduce main-session token use and make long-running CLI work easier to watch. It is an I/O controller, not a reviewer or implementer.
+
+Broker duties:
+
+- Receive lane name, command, cwd, spec path, log path, and expected mode.
+- Start exactly one external CLI process.
+- Keep pid, prompt path, log path, exit code, and last status.
+- Stream output with `tee` so the user can watch logs directly.
+- Report only state changes, terminal states, and attention-needed states.
+- Avoid reading, restating, or summarizing routine logs.
+- Avoid judging code quality, architecture, findings, or completion correctness.
+
+Broker status vocabulary:
+
+```text
+STARTED lane=<name> pid=<pid> log=<path> prompt=<path>
+RUNNING lane=<name> evidence=<process|session|tool|diff>
+NEEDS_ATTENTION lane=<name> reason=<short reason> evidence=<short evidence>
+EXITED lane=<name> status=<code> log=<path>
+FAILED_TO_START lane=<name> reason=<short reason> log=<path>
+```
+
+Use the cheapest adequate broker model if model selection is available, such as `5.4-mini` or the smallest low-latency model exposed by the runtime. The broker prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not summarize normal output, and do not stop a lane because stdout is quiet for a short period.
+
+The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts, inspects diffs, and runs verification. Broker reports are lifecycle evidence only.
 
 ## Lane Selection
 
@@ -84,6 +115,8 @@ Avoid sending multiple agents to edit the same files. If two independent impleme
 External CLIs are optional. The skill is fully functional with local Codex work and Codex `worker` / `explorer` sub-agents alone.
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
+
+When an external lane is expected to run longer than a quick single response, use broker mode: the main session writes the spec and command, then hands lifecycle management to exactly one broker for that lane. If a broker-capable sub-agent surface is not available, run the same command locally and follow the broker status vocabulary in the main session.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -217,13 +250,16 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Invoke the CLI with visible logging: stream output to the main session and save the same output to a unique log file.
-4. Retain its process/session identifiers, prompt path, log path, and exit status.
-5. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
-6. Capture its final message/log and the last active-task evidence.
-7. Inspect the actual diff.
-8. Run verification yourself.
-9. Report status, changed files, verification output, log path, and any gaps.
+3. Write a unique log path.
+4. Start exactly one broker for the lane when available, passing lane, command, cwd, prompt path, and log path.
+5. Require broker status vocabulary only: `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`.
+6. Let the broker invoke the CLI with visible logging: stream output to the user and save the same output to the log file.
+7. Retain process/session identifiers, prompt path, log path, and exit status from broker reports.
+8. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
+9. Capture final text/log and the last active-task evidence.
+10. Inspect the actual diff.
+11. Run verification yourself.
+12. Report status, changed files, verification output, log path, and any gaps.
 
 Use broad permissions only for write-producing lanes. Keep read-only reviews, advisor passes, and preflight checks on read-only or default modes.
 
