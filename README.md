@@ -50,7 +50,7 @@ Use $codex-orchestrator to plan, delegate, and verify this coding task.
 
 - High-stakes or multi-agent work: orchestrate, delegate to sub-agents, run parallel workers, compare implementations, or use an external CLI lane.
 - Recommended: `Use $codex-orchestrator ...` so the skill is selected intentionally.
-- In orchestrator mode, delegated agents use the skill priority: Grok first, Claude second, Antigravity third. Say "Codex worker/explorer" when you specifically want Codex runtime sub-agents.
+- In orchestrator mode, delegated agents use the skill priority: Grok first, Claude second, Antigravity third. Say "Codex worker/explorer" when you specifically want Codex runtime sub-agents. Say "Gemini" to route through Antigravity `agy`.
 - Skip for ordinary single-session tasks: fix, implement, refactor, review, or plan alone.
 
 ## Install As A Plugin
@@ -103,13 +103,13 @@ If you specify a model, the skill should pass the model flag to that CLI.
 
 ```bash
 # User specified a model
-grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default
-grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
@@ -118,6 +118,8 @@ codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Do not combine Grok `--check` with `--no-subagents`.
 
 If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--effort high` unless you ask for another Claude effort such as `max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
+
+Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
 For Grok:
 
@@ -138,6 +140,8 @@ agy models
 ```
 
 For external lanes, prefer visible logs: stream output where the user can watch it while saving the same output with `tee`. Codex should not summarize routine log output; inspect the saved log only when the lane exits, fails, appears stuck, or the user asks for status.
+
+For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 
 Claude Code `-p` text output can stay quiet until final output. If a Claude lane appears stuck, inspect it with filtered stream JSON instead of raw stream output:
 

@@ -45,7 +45,7 @@ Use the cheapest adequate lane:
 - Local edit: small or tightly coupled changes where delegation would add overhead.
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
-- Antigravity external lane: third independent producer through `agy`, defaulting to `Gemini 3.5 Flash (High)`.
+- Antigravity external lane: third independent producer through `agy`, defaulting to `Gemini 3.5 Flash (High)`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -54,6 +54,8 @@ Use the cheapest adequate lane:
 - Advisor pass: commitment-boundary judgment, not implementation.
 
 When this skill is active, "agent" means the skill's preferred delegated agents unless the user says "Codex sub-agent", `worker`, or `explorer`. The preferred order is Grok first, Claude second, Antigravity third. Use Codex `worker` / `explorer` only when the user explicitly asks for Codex sub-agents, or after a requested preferred lane is unavailable and the user chooses Codex sub-agents instead.
+
+Do not use an Antigravity Claude model. If the user asks for Claude, use the Claude CLI lane. If the user asks for Gemini, use the Antigravity `agy` lane with a Gemini model.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -96,6 +98,12 @@ Use only the CLI that is installed, authenticated, and requested or appropriate 
 
 If preflight fails, or lifecycle evidence proves that a requested external CLI is terminally unavailable, stop before doing equivalent work another way. Ask whether to install/configure that CLI or use Codex `worker` / `explorer` sub-agents instead. Missing stdout is not enough to make that determination.
 
+For Grok lanes, disable inherited Cursor and Claude MCP discovery unless the task explicitly needs those MCP servers. This prevents unrelated local MCP startup failures, such as an unavailable Figma SSE port or invalid third-party tool names, from polluting code-review and implementation runs:
+
+```bash
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok ...
+```
+
 ### Execution Isolation
 
 For write-producing external CLI work:
@@ -118,7 +126,7 @@ Match permissions to the lane contract:
 Edit-capable examples:
 
 ```bash
-grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
 agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
 ```
@@ -126,7 +134,7 @@ agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3
 Read-only examples:
 
 ```bash
-grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high < "$SPEC" 2>&1 | tee "$LOG"
 agy --print --mode plan --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
 ```
@@ -164,8 +172,10 @@ Example:
 SPEC=$(mktemp -t codex-orchestrator-spec.XXXXXX)
 LOG=$(mktemp -t codex-orchestrator-lane.XXXXXX)
 
-grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 ```
+
+Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Do not report `STATUS: unavailable` from MCP warnings alone. If a Grok lane is quiet after an initial plan, inspect process/session state and the saved log; a short period without stdout is not enough to stop it.
 
 Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--effort high` for the Claude lane unless the user asks for a different Claude effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
 
@@ -183,19 +193,21 @@ Examples:
 
 ```bash
 # User specified a model for write-producing work.
-grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
-grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
 Claude uses `--effort high` by default for this skill's Claude lane unless the user asks for another Claude effort such as `max`. Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
+
+Gemini is an Antigravity `agy` request. Use `agy --model "<Gemini model>"` for Gemini requests. Never select an Antigravity Claude model; route Claude requests to the Claude CLI lane instead.
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
