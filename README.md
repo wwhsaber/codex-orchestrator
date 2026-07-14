@@ -95,20 +95,20 @@ Restart Codex after installing or updating the plugin.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
 - Supports optional external CLI lanes such as `grok`, `claude`, `agy`, and `codex` when those tools are installed and authenticated.
-- Uses one lightweight broker per external CLI lane when available, so long-running Grok/Claude/agy work is managed through structured lifecycle status instead of main-session log watching.
+- Uses one lightweight broker sub-agent per external CLI lane when available, so long-running Grok/Claude/agy work is managed through structured lifecycle status instead of main-session log watching.
 - Requires final verification from the main session before calling work done.
 
 ## Broker Mode
 
-External CLI lanes can run through one broker per lane:
+External CLI lanes can run through one broker sub-agent per lane. "Broker" is the role assigned to that sub-agent, not a separate system:
 
 ```text
-Grok broker -> grok
-Claude broker -> claude
-Antigravity broker -> agy / Gemini
+Grok broker sub-agent -> grok
+Claude broker sub-agent -> claude
+Antigravity broker sub-agent -> agy / Gemini
 ```
 
-The broker only starts the command, streams logs with `tee`, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
+The broker sub-agent only starts the command, streams logs with `tee`, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
 ## Model Selection
 
