@@ -161,7 +161,7 @@ Edit-capable examples:
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
-agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
 
 Read-only examples:
@@ -169,7 +169,7 @@ Read-only examples:
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high < "$SPEC" 2>&1 | tee "$LOG"
-agy --print --mode plan --model "Gemini 3.5 Flash (High)" < "$SPEC" 2>&1 | tee "$LOG"
+agy --print "$(cat "$SPEC")" --mode plan --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
 
 ### External Agent Lifecycle
@@ -218,6 +218,8 @@ claude -p --effort high --verbose --output-format stream-json --permission-mode 
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```
 
+Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
+
 ### Model Selection
 
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, omit the model flag and use the CLI default.
@@ -228,13 +230,13 @@ Examples:
 # User specified a model for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" < "$SPEC"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
