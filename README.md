@@ -108,9 +108,9 @@ Claude broker sub-agent -> claude
 Antigravity broker sub-agent -> agy / Gemini
 ```
 
-For Codex Desktop's visible sub-agent list, create and publish fixed Workspace Agents named `Grok Broker`, `Claude Broker`, and `Gemini Broker`. The repository's `agents/openai.yaml` file is only skill-card metadata; it does not create runnable entries in that left-side list.
+Codex Desktop's visible sub-agent list shows runtime sub-agents for the current task. Published Workspace Agents named `Grok Broker`, `Claude Broker`, and `Gemini Broker` do not automatically appear in that active list. The repository's `agents/openai.yaml` file is only skill-card metadata; it does not create runnable entries in that left-side list.
 
-When those fixed agents exist, the skill should use them before creating an anonymous runtime broker. Use a runtime broker only when the matching fixed Workspace Agent is not present or when the user explicitly asks for a temporary Codex sub-agent.
+When the user wants a broker to appear in the active sub-agent list, spawn a runtime sub-agent and state its broker role in the prompt. Codex assigns the visible nickname, so report the mapping, for example `Copernicus -> Gemini Broker`.
 
 The broker sub-agent only starts or monitors the command, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
