@@ -137,6 +137,8 @@ For Grok lanes, disable inherited Cursor and Claude MCP discovery unless the tas
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok ...
 ```
 
+Use `--no-subagents` for Grok lanes by default. A Grok lane is already a delegated producer from the main Codex session; letting Grok spawn more agents inside that lane makes ownership, logs, permissions, and terminal-state checks harder to trust. Allow Grok subagents only when the user explicitly asks Grok to coordinate its own subagents for that task. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
+
 ### Execution Isolation
 
 For write-producing external CLI work:
@@ -154,12 +156,12 @@ Match permissions to the lane contract:
 - Read-only review or advisor lane: keep default or plan/read-only behavior.
 - Write-producing implementation lane: pass that CLI's broad edit and tool approval mode to avoid permission stalls.
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
-- For Grok write-producing lanes, use `--permission-mode bypassPermissions`. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
+- For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
 Edit-capable examples:
 
 ```bash
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
@@ -167,7 +169,7 @@ agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions 
 Read-only examples:
 
 ```bash
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --effort high < "$SPEC" 2>&1 | tee "$LOG"
 agy --print "$(cat "$SPEC")" --mode plan --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
@@ -205,10 +207,10 @@ Example:
 SPEC=$(mktemp -t codex-orchestrator-spec.XXXXXX)
 LOG=$(mktemp -t codex-orchestrator-lane.XXXXXX)
 
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 ```
 
-Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Do not report `STATUS: unavailable` from MCP warnings alone. If a Grok lane is quiet after an initial plan, inspect process/session state and the saved log; a short period without stdout is not enough to stop it.
+Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one broker lane. Do not report `STATUS: unavailable` from MCP warnings alone. If a Grok lane is quiet after an initial plan, inspect process/session state and the saved log; a short period without stdout is not enough to stop it.
 
 Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--effort high` for the Claude lane unless the user asks for a different Claude effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
 
@@ -228,13 +230,13 @@ Examples:
 
 ```bash
 # User specified a model for write-producing work.
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
