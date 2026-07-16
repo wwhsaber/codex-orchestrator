@@ -95,10 +95,15 @@ Restart Codex after installing or updating the plugin.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
 - Supports optional external CLI lanes such as `grok`, `claude`, `agy`, and `codex` when those tools are installed and authenticated.
-- Uses one lightweight broker sub-agent per external CLI lane when available, so long-running Grok/Claude/agy work is managed through structured lifecycle status instead of main-session log watching.
+- Runs external CLI lanes directly by default to keep Codex token use low while still saving visible logs with `tee`.
+- Supports optional broker sub-agents when you explicitly want Codex UI status cards for external lanes.
 - Requires final verification from the main session before calling work done.
 
-## Broker Mode
+## External CLI Mode
+
+By default, the main Codex session writes the spec, starts the external CLI directly, streams output with `tee`, and saves the log path. Codex should not summarize routine log output. It should inspect the saved log only when the lane exits, fails, appears stuck, or you ask for status.
+
+## Optional Broker Mode
 
 External CLI lanes can run through one broker sub-agent per lane. "Broker" is the role assigned to that sub-agent, not a separate system:
 
@@ -109,6 +114,8 @@ Antigravity broker sub-agent -> agy / Gemini
 ```
 
 The broker sub-agent only starts the command, streams logs with `tee`, tracks pid/log/exit status, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, summarize routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
+
+Broker mode is easier to watch in the Codex UI, but it consumes Codex tokens because the broker itself is a Codex sub-agent. Use it only when you explicitly ask for broker mode, visible sub-agent cards, or structured broker status.
 
 ## Model Selection
 
@@ -128,7 +135,7 @@ agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions 
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one broker lane. Do not combine Grok `--check` with `--no-subagents`.
+For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one direct CLI lane. Do not combine Grok `--check` with `--no-subagents`.
 
 For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. If Gemini explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun with the prompt-first command form.
 
