@@ -175,7 +175,7 @@ Edit-capable examples:
 
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
 
@@ -183,7 +183,7 @@ Read-only examples:
 
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --effort high < "$SPEC" 2>&1 | tee "$LOG"
+claude -p --model sonnet --effort high < "$SPEC" 2>&1 | tee "$LOG"
 agy --print "$(cat "$SPEC")" --mode plan --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
 ```
 
@@ -225,10 +225,10 @@ GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagent
 
 Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one direct CLI lane. Do not report `STATUS: unavailable` from MCP warnings alone. If a Grok lane is quiet after an initial plan, inspect process/session state and the saved log; a short period without stdout is not enough to stop it.
 
-Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--effort high` for the Claude lane unless the user asks for a different Claude effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
+Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--model sonnet --effort high` for the Claude lane unless the user asks for a different Claude model or effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
 
 ```bash
-claude -p --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
+claude -p --model sonnet --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
   | tee "$LOG" \
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```
@@ -237,7 +237,7 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 ### Model Selection
 
-If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, omit the model flag and use the CLI default.
+If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `Gemini 3.5 Flash (High)` for Antigravity.
 
 Examples:
 
@@ -250,12 +250,12 @@ codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pw
 
 # User did not specify a model; use each lane default for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-Claude uses `--effort high` by default for this skill's Claude lane unless the user asks for another Claude effort such as `max`. Antigravity is the exception to the generic default-model rule: for the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
+Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
 
 Gemini is an Antigravity `agy` request. Use `agy --model "<Gemini model>"` for Gemini requests. Never select an Antigravity Claude model; route Claude requests to the Claude CLI lane instead.
 

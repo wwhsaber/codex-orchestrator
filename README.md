@@ -130,7 +130,7 @@ codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pw
 
 # User did not specify a model; use each lane default
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --effort high --permission-mode bypassPermissions < "$SPEC"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
@@ -139,7 +139,7 @@ For write-producing implementation lanes, use broad edit and tool approval modes
 
 For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. If Gemini explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun with the prompt-first command form.
 
-If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--effort high` unless you ask for another Claude effort such as `max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
+If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
@@ -168,7 +168,7 @@ For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GR
 Claude Code `-p` text output can stay quiet until final output. If a Claude lane appears stuck, inspect it with filtered stream JSON instead of raw stream output:
 
 ```bash
-claude -p --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
+claude -p --model sonnet --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
   | tee "$LOG" \
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```
