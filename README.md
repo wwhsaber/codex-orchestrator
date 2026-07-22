@@ -125,13 +125,13 @@ If you specify a model, the skill should pass the model flag to that CLI.
 # User specified a model
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
@@ -139,7 +139,7 @@ For write-producing implementation lanes, use broad edit and tool approval modes
 
 For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. If Gemini explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun with the prompt-first command form.
 
-If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `Gemini 3.5 Flash (High)`.
+If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `gemini-3.6-flash-high`.
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 

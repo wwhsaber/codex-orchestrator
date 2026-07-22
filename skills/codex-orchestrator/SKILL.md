@@ -89,7 +89,7 @@ Use the cheapest adequate lane:
 - Local edit: small or tightly coupled changes where delegation would add overhead.
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
-- Antigravity external lane: third independent producer through `agy`, defaulting to `Gemini 3.5 Flash (High)`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
+- Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.6-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -176,7 +176,7 @@ Edit-capable examples:
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
 ```
 
 Read-only examples:
@@ -184,7 +184,7 @@ Read-only examples:
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --model sonnet --effort high < "$SPEC" 2>&1 | tee "$LOG"
-agy --print "$(cat "$SPEC")" --mode plan --model "Gemini 3.5 Flash (High)" 2>&1 | tee "$LOG"
+agy --print "$(cat "$SPEC")" --mode plan --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
 ```
 
 ### External Agent Lifecycle
@@ -237,7 +237,7 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 ### Model Selection
 
-If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `Gemini 3.5 Flash (High)` for Antigravity.
+If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
 Examples:
 
@@ -245,17 +245,17 @@ Examples:
 # User specified a model for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model "Gemini 3.5 Flash (High)"
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `Gemini 3.5 Flash (High)` unless the user names another Antigravity model.
+Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `gemini-3.6-flash-high` unless the user names another Antigravity model.
 
 Gemini is an Antigravity `agy` request. Use `agy --model "<Gemini model>"` for Gemini requests. Never select an Antigravity Claude model; route Claude requests to the Claude CLI lane instead.
 
