@@ -20,7 +20,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For external CLI work, run the external CLI directly from the main session by default and save visible logs with `tee`.
+4. For external CLI work, run short lanes directly and use the bundled supervisor for lanes expected to exceed 90 seconds.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Continue useful local work while delegated lanes run.
 7. Review returned changes before integrating them.
@@ -39,18 +39,19 @@ Every delegated task must include all five parts. The worker should not need pri
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
-## Direct CLI Mode
+## Zero-Poll CLI Mode
 
-Use direct CLI mode by default for Grok, Claude, Antigravity, and Codex CLI lanes. The main session writes the spec, starts the external CLI process, streams output with `tee`, and saves the log path. This keeps Codex involvement limited to routing, launch, final inspection, and verification.
+Use direct foreground CLI mode for Grok, Claude, Antigravity, and Codex CLI lanes expected to finish within 90 seconds. For longer lanes, read [references/zero-poll-lanes.md](references/zero-poll-lanes.md) and launch them with `scripts/lane-supervisor.sh`.
 
-Do not read or summarize routine logs while an external CLI is running. Let the user watch the terminal output directly. Inspect saved logs only when the lane exits, fails, appears stuck, or the user asks for status.
+The supervisor is a non-model process. It waits for the external CLI, writes a small state snapshot, keeps the full log outside model context, limits the result snapshot, creates a completion marker, and rejects duplicate starts for the same lane, working directory, and spec.
 
-For long-running lanes, keep Codex checks small:
+After a supervised lane returns `STARTED`:
 
-- Record lane name, command, cwd, prompt path, log path, and pid when available.
-- Prefer process-state checks over reading large logs.
-- Poll only for lifecycle state unless there is a terminal event or an attention-needed signal.
-- Read the final text, relevant log tail, diff, and verification output after the external CLI is done.
+- Do not poll it on a timer.
+- Do not read its log or session files while it runs.
+- Use a runtime completion callback for the supervisor's `done` marker when available.
+- When no completion callback exists, report the start receipt and end the current turn. Resume only after the user returns or an external completion notification arrives.
+- Read the small state and result snapshots once after a terminal event, then inspect the diff and verify.
 
 ## Optional Broker Mode
 
@@ -63,8 +64,8 @@ Broker duties:
 - Receive lane name, command, cwd, spec path, log path, and expected mode.
 - Start exactly one external CLI process.
 - Keep pid, prompt path, log path, exit code, and last status.
-- Stream output with `tee` so the user can watch logs directly.
-- Report only state changes, terminal states, and attention-needed states.
+- Start the bundled supervisor and retain its state directory.
+- Report only the start receipt, terminal state, or attention-needed state.
 - Avoid reading, restating, or summarizing routine logs.
 - Avoid judging code quality, architecture, findings, or completion correctness.
 
@@ -78,7 +79,7 @@ EXITED lane=<name> status=<code> log=<path>
 FAILED_TO_START lane=<name> reason=<short reason> log=<path>
 ```
 
-Use the cheapest adequate sub-agent model if model selection is available, such as `5.4-mini` or the smallest low-latency model exposed by the runtime. The broker prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not summarize normal output, and do not stop a lane because stdout is quiet for a short period.
+Use the cheapest adequate sub-agent model if model selection is available, such as `5.4-mini` or the smallest low-latency model exposed by the runtime. Give the broker only lane metadata and file paths, not parent history or the spec contents. The broker prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not read routine logs, and do not stop a lane because stdout is quiet for a short period.
 
 The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts, inspects diffs, and runs verification. Broker reports are lifecycle evidence only.
 
@@ -129,7 +130,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-When an external lane is expected to run longer than a quick single response, still use direct CLI mode by default. Use broker mode only when the user explicitly asks for broker sub-agents, visible sub-agent cards, or structured broker status.
+When an external lane is expected to exceed 90 seconds, use supervised Zero-Poll mode by default. Use broker mode only when the user explicitly asks for broker sub-agents, visible sub-agent cards, or structured broker status.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -193,25 +194,27 @@ A quiet terminal is not proof that an external agent has stopped. Headless wrapp
 
 When an external lane is running:
 
-1. Retain the process and session identifiers, the latest agent update, active tool call IDs, and its declared todo/task state where the CLI exposes them.
-2. Monitor actual lifecycle evidence: process state, session updates, tool-call status, todo/task progress, and the target working-directory diff. Lack of stdout alone is not a failure signal.
-3. Poll long-running work at a measured cadence, normally every 30-60 seconds. Record what changed between polls so a later handoff can continue from evidence instead of guessing.
-4. Do not cancel or kill a lane while it has an in-progress tool call, an active remote session, or pending declared work solely because it appears quiet or exceeds a short local timeout.
-5. A lane may be terminated only when the user asks to stop, the CLI reports a terminal failure/cancellation, the process and session are both terminal, or repeated polling shows no active work and no progress for a documented threshold. Before termination, report the evidence and preserve the session details.
-6. Do not change a CLI's permission mode or enable bypass-style approval settings as a reaction to an unclear stall. Diagnose lifecycle state first.
+1. Retain the supervisor state directory and the one-line start receipt.
+2. Do not schedule heartbeat, status, session, log, diff, or tool-history checks.
+3. Treat only a completion callback, a supervisor terminal marker, an explicit CLI terminal event, or a user status request as permission to inspect state.
+4. For a user status request, read only the supervisor state snapshot. Do not add a log read unless the snapshot is terminal and indicates failure.
+5. On a terminal event, read state once and result once. Read a bounded log tail only when failure diagnosis requires it.
+6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
+7. Never start the same task again when the supervisor reports `ALREADY_RUNNING`.
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
 ### Visible Logs
 
-Do not hide an external lane behind output redirection alone. The user should be able to watch the live output, and the main session should keep a saved log path for later checks.
+Keep full external output outside the model context for supervised lanes. Return the log path to the user so they can watch it in a terminal or dashboard without making the main model read it.
 
 For external CLI invocations:
 
-- Save stdout/stderr to a unique log file and show it in user-visible terminal output at the same time, normally with `tee`.
+- For short foreground lanes, save stdout/stderr with `tee`.
+- For supervised lanes, let the supervisor write `lane.log`; do not stream that output through the model tool response.
 - Keep the log path, prompt path, process ID, and exit status in the final lane report.
-- Do not read, restate, or summarize routine log output. The user can watch it directly.
-- Inspect the saved log only when the lane appears stuck, exits, fails, or the user asks for status.
+- Do not read, restate, or summarize routine log output.
+- Inspect the saved log only after a terminal failure when the bounded result does not explain it.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
 
 Example:
@@ -267,12 +270,12 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Write a unique log path.
-4. Start the external CLI directly from the main session with visible logging: stream output to the user and save the same output to the log file.
-5. Retain process/session identifiers when the CLI exposes them, plus prompt path, log path, and exit status.
-6. Monitor lifecycle state until a terminal condition is confirmed; do not use quiet output as a proxy for completion.
-7. Avoid reading routine logs while the lane runs. Inspect logs only on exit, failure, a stuck signal, or a user status request.
-8. Capture final text/log and the last active-task evidence.
+3. For a lane expected to exceed 90 seconds, compute its task key and start the bundled supervisor.
+4. Retain only the start receipt and state directory in the main context.
+5. Register a completion callback when available; otherwise end the current turn after reporting `STARTED`.
+6. Do not poll or read routine logs while the lane runs.
+7. On a terminal event, read the state and bounded result once.
+8. Read a bounded log tail only for an unexplained failure.
 9. Inspect the actual diff.
 10. Run verification yourself.
 11. Report status, changed files, verification output, log path, and any gaps.

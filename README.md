@@ -147,6 +147,14 @@ If you do not specify a model, the CLI default is used, except Claude and Antigr
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
+## Zero-Poll Long Tasks
+
+External lanes expected to exceed 90 seconds run through the bundled non-model supervisor. It returns one `STARTED` receipt, writes lifecycle state and full logs outside the model context, creates a completion marker, limits the final result snapshot to 32 KiB, and prevents duplicate starts for the same lane, directory, and spec.
+
+The main Codex session does not poll on a timer or read session JSONL. It resumes on a completion event, failure, or explicit user status request. When the runtime has no completion callback, the start turn ends after reporting the receipt; the user can watch the supplied log path independently and return after notification.
+
+See `skills/codex-orchestrator/references/zero-poll-lanes.md` for Grok, Claude, and Antigravity examples.
+
 For Grok:
 
 ```bash
