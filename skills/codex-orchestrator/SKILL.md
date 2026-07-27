@@ -166,7 +166,7 @@ For write-producing external CLI work:
 
 Match permissions to the lane contract:
 
-- Read-only review or advisor lane: keep default or plan/read-only behavior.
+- Read-only review or advisor lane: keep plan/read-only behavior, but auto-approve headless read and command requests when the CLI cannot prompt.
 - Write-producing implementation lane: pass that CLI's broad edit and tool approval mode to avoid permission stalls.
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
@@ -184,7 +184,7 @@ Read-only examples:
 ```bash
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
 claude -p --model sonnet --effort high < "$SPEC" 2>&1 | tee "$LOG"
-agy --print "$(cat "$SPEC")" --mode plan --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
+agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
 ```
 
 ### External Agent Lifecycle
@@ -233,7 +233,7 @@ claude -p --model sonnet --effort high --verbose --output-format stream-json --p
   | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
 ```
 
-Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
+Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. For headless read-only work, always combine `--mode plan` with `--dangerously-skip-permissions`; plan mode keeps the lane in review posture while automatic approval lets it read files and run inspection commands without an unavailable prompt. Add `--print-timeout 15m` so repository reviews are not cut off by the five-minute default. State the no-edit contract in the spec and inspect the working-directory diff after the lane exits. Before starting or retrying, check whether the same Antigravity task still has a live process or session; do not stack a duplicate lane on top of active work. If the output says a tool required permission and was auto-denied, classify the attempt as invocation setup failure rather than a review result. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
 
 ### Model Selection
 
