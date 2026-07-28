@@ -20,7 +20,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For external CLI work, run short lanes directly and use the bundled supervisor for lanes expected to exceed 90 seconds.
+4. For every external CLI lane, use the bundled supervisor.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Continue useful local work while delegated lanes run.
 7. Review returned changes before integrating them.
@@ -41,7 +41,7 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 
 ## Zero-Poll CLI Mode
 
-Use direct foreground CLI mode for Grok, Claude, Antigravity, and Codex CLI lanes expected to finish within 90 seconds. For longer lanes, read [references/zero-poll-lanes.md](references/zero-poll-lanes.md) and launch them with `scripts/lane-supervisor.sh`.
+Read [references/zero-poll-lanes.md](references/zero-poll-lanes.md) and launch every Grok, Claude, Antigravity, and Codex CLI lane with `scripts/lane-supervisor.sh`. Do not estimate task duration and do not run an external lane in the foreground.
 
 The supervisor is a non-model process. It waits for the external CLI, writes a small state snapshot, keeps the full log outside model context, limits the result snapshot, creates a completion marker, and rejects duplicate starts for the same lane, working directory, and spec.
 
@@ -57,7 +57,7 @@ After a supervised lane returns `STARTED`:
 
 Use a lightweight broker sub-agent for external CLI lanes only when the user explicitly asks to see broker sub-agents in the Codex UI, asks for broker mode, or wants structured status cards for long-running lanes. "Broker" is a role assigned to a Codex sub-agent, not a separate system. The broker is one-to-one with a single external lane: one Grok broker sub-agent controls only Grok, one Claude broker sub-agent controls only Claude, and one Antigravity broker sub-agent controls only `agy`.
 
-Broker mode is easier to watch in the Codex UI, but it consumes Codex tokens because the broker itself is a Codex sub-agent. Use direct CLI mode when saving Codex tokens is more important than UI status cards.
+Broker mode is easier to watch in the Codex UI, but it consumes Codex tokens because the broker itself is a Codex sub-agent. Use supervisor mode without a broker when saving Codex tokens is more important than UI status cards.
 
 Broker duties:
 
@@ -130,7 +130,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-When an external lane is expected to exceed 90 seconds, use supervised Zero-Poll mode by default. Use broker mode only when the user explicitly asks for broker sub-agents, visible sub-agent cards, or structured broker status.
+Use supervised Zero-Poll mode for every external lane, regardless of expected duration. Use broker mode only when the user explicitly asks for broker sub-agents, visible sub-agent cards, or structured broker status.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -172,20 +172,20 @@ Match permissions to the lane contract:
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
-Edit-capable examples:
+Edit-capable command payloads to pass after the supervisor's `--` separator:
 
 ```bash
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC" 2>&1 | tee "$LOG"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
+env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --model sonnet --effort high --permission-mode bypassPermissions
+agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 ```
 
-Read-only examples:
+Read-only command payloads to pass after the supervisor's `--` separator:
 
 ```bash
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-claude -p --model sonnet --effort high < "$SPEC" 2>&1 | tee "$LOG"
-agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high 2>&1 | tee "$LOG"
+env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
+claude -p --model sonnet --effort high
+agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high
 ```
 
 ### External Agent Lifecycle
@@ -206,35 +206,20 @@ If the user assigned implementation to a named external agent, that agent remain
 
 ### Visible Logs
 
-Keep full external output outside the model context for supervised lanes. Return the log path to the user so they can watch it in a terminal or dashboard without making the main model read it.
+Keep full external output outside the model context. Return the supervisor's log path to the user so they can watch it in a terminal or dashboard without making the main model read it.
 
 For external CLI invocations:
 
-- For short foreground lanes, save stdout/stderr with `tee`.
-- For supervised lanes, let the supervisor write `lane.log`; do not stream that output through the model tool response.
+- Let the supervisor write `lane.log`; do not stream external output through the model tool response.
+- Do not invoke an external lane through a foreground shell pipeline or `tee`.
 - Keep the log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
 - Inspect the saved log only after a terminal failure when the bounded result does not explain it.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
 
-Example:
+Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one supervised CLI lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
 
-```bash
-SPEC=$(mktemp -t codex-orchestrator-spec.XXXXXX)
-LOG=$(mktemp -t codex-orchestrator-lane.XXXXXX)
-
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)" 2>&1 | tee "$LOG"
-```
-
-Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one direct CLI lane. Do not report `STATUS: unavailable` from MCP warnings alone. If a Grok lane is quiet after an initial plan, inspect process/session state and the saved log; a short period without stdout is not enough to stop it.
-
-Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--model sonnet --effort high` for the Claude lane unless the user asks for a different Claude model or effort such as `max`. If a Claude lane appears stuck or the user asks for status, rerun or inspect with filtered stream JSON rather than raw stream output, because raw stream output can include thinking content:
-
-```bash
-claude -p --model sonnet --effort high --verbose --output-format stream-json --permission-mode bypassPermissions < "$SPEC" 2>&1 \
-  | tee "$LOG" \
-  | jq -r 'if .type=="system" then "[system] " + (.subtype // .status // "event") elif .type=="result" then "[result] done" elif .type=="assistant" then (.message.content[]? | select(.type=="text") | .text) else empty end'
-```
+Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--model sonnet --effort high` for the Claude lane unless the user asks for a different Claude model or effort such as `max`. Do not rerun a quiet Claude lane or inspect its stream while it is active.
 
 Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. For headless read-only work, always combine `--mode plan` with `--dangerously-skip-permissions`; plan mode keeps the lane in review posture while automatic approval lets it read files and run inspection commands without an unavailable prompt. Add `--print-timeout 15m` so repository reviews are not cut off by the five-minute default. State the no-edit contract in the spec and inspect the working-directory diff after the lane exits. Before starting or retrying, check whether the same Antigravity task still has a live process or session; do not stack a duplicate lane on top of active work. If the output says a tool required permission and was auto-denied, classify the attempt as invocation setup failure rather than a review result. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
 
@@ -242,7 +227,7 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
-Examples:
+The following examples are command payloads to pass after the supervisor's `--` separator:
 
 ```bash
 # User specified a model for write-producing work.
@@ -270,7 +255,7 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. For a lane expected to exceed 90 seconds, compute its task key and start the bundled supervisor.
+3. Compute its task key and start the bundled supervisor.
 4. Retain only the start receipt and state directory in the main context.
 5. Register a completion callback when available; otherwise end the current turn after reporting `STARTED`.
 6. Do not poll or read routine logs while the lane runs.

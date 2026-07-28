@@ -1,6 +1,6 @@
 # Zero-Poll Lanes
 
-Read this reference when an external CLI lane is expected to run longer than 90 seconds or when conserving Codex tokens is a priority.
+Read this reference before starting any external CLI lane. Every Grok, Claude, Antigravity, and Codex CLI lane uses the supervisor regardless of expected duration.
 
 ## Start
 
@@ -48,6 +48,18 @@ Antigravity:
   --state-dir "$STATE_DIR" \
   -- agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
     --print-timeout 15m --model gemini-3.6-flash-high
+```
+
+Codex CLI:
+
+```bash
+"$SUPERVISOR" start \
+  --lane codex \
+  --cwd "$(pwd)" \
+  --spec "$SPEC" \
+  --stdin "$SPEC" \
+  --state-dir "$STATE_DIR" \
+  -- codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" -
 ```
 
 Add each CLI's broad edit approval flags for write-producing work.
