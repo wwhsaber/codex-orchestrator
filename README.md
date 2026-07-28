@@ -95,17 +95,13 @@ Restart Codex after installing or updating the plugin.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
 - Supports optional external CLI lanes such as `grok`, `claude`, `agy`, and `codex` when those tools are installed and authenticated.
-- Runs every external CLI lane through a non-model supervisor to keep routine output outside Codex context.
-- Supports optional broker sub-agents when you explicitly want Codex UI status cards for external lanes.
+- Runs every external CLI lane through a lightweight one-to-one broker sub-agent.
+- Uses long native agent waits instead of short status polling.
 - Requires final verification from the main session before calling work done.
 
 ## External CLI Mode
 
-The main Codex session writes the spec and starts every external CLI through the bundled supervisor. The supervisor saves the full log without streaming it through the model. Codex reads only the bounded final result after completion, or the small state snapshot when you explicitly ask for status.
-
-## Optional Broker Mode
-
-External CLI lanes can run through one broker sub-agent per lane. "Broker" is the role assigned to that sub-agent, not a separate system:
+The main Codex session writes the spec and creates one broker sub-agent per external CLI lane. "Broker" is the role assigned to that sub-agent, not a separate service:
 
 ```text
 Grok broker sub-agent -> grok
@@ -113,13 +109,13 @@ Claude broker sub-agent -> claude
 Antigravity broker sub-agent -> agy / Gemini
 ```
 
-The broker sub-agent only starts the supervisor, tracks its state directory, and reports `STARTED`, `RUNNING`, `NEEDS_ATTENTION`, `EXITED`, or `FAILED_TO_START`. It should not review code, read routine logs, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
+The broker starts one external process, saves its full output to a log file, and reports only terminal status plus a bounded output tail. It does not review code, narrate progress, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
-Broker mode is easier to watch in the Codex UI, but it consumes Codex tokens because the broker itself is a Codex sub-agent. Use it only when you explicitly ask for broker mode, visible sub-agent cards, or structured broker status.
+The main session waits for brokers with one `agents.wait` call of up to 15 minutes. A wait timeout does not terminate the broker or CLI; the main session waits again without reading logs or requesting status.
 
 ## Model Selection
 
-If you specify a model, the skill passes the model flag to that CLI. The following examples are command payloads for the supervisor, not foreground invocations.
+If you specify a model, the skill passes the model flag to that CLI. The following examples are commands run by the broker.
 
 ```bash
 # User specified a model
@@ -135,7 +131,7 @@ agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions 
 codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one supervised CLI lane. Do not combine Grok `--check` with `--no-subagents`.
+For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one broker lane. Do not combine Grok `--check` with `--no-subagents`.
 
 For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Headless read-only reviews should use `--mode plan --dangerously-skip-permissions --print-timeout 15m`: plan mode keeps review posture, while automatic approval permits file reads and inspection commands when no permission prompt can be shown. Confirm afterward that Gemini did not change the working-directory diff. Before retrying, confirm the same Antigravity process or session is not still active. If Gemini reports an auto-denied tool permission, or explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun once with the corrected prompt-first command form.
 
@@ -147,13 +143,22 @@ If you do not specify a model, the CLI default is used, except Claude and Antigr
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
-## Zero-Poll External Tasks
+## Long Native Waits
 
-Every external lane runs through the bundled non-model supervisor, regardless of expected duration. It returns one `STARTED` receipt, writes lifecycle state and full logs outside the model context, creates a completion marker, limits the final result snapshot to 32 KiB, and prevents duplicate starts for the same lane, directory, and spec.
+Every external lane runs through a lightweight broker sub-agent. Configure `multi_agent_v2` so the main session can wait for up to 15 minutes in one native tool call:
 
-The main Codex session does not poll on a timer or read session JSONL. It resumes on a completion event, failure, or explicit user status request. When the runtime has no completion callback, the start turn ends after reporting the receipt; the user can watch the supplied log path independently and return after notification.
+```toml
+[features.multi_agent_v2]
+enabled = true
+hide_spawn_agent_metadata = false
+tool_namespace = "agents"
+max_concurrent_threads_per_session = 7
+min_wait_timeout_ms = 10000
+default_wait_timeout_ms = 900000
+max_wait_timeout_ms = 900000
+```
 
-See `skills/codex-orchestrator/references/zero-poll-lanes.md` for Grok, Claude, and Antigravity examples.
+The main Codex session does not read session JSONL, ask for routine status, or inspect logs while a broker is active. See `skills/codex-orchestrator/references/broker-lanes.md` for the broker contract and commands.
 
 For Grok:
 
@@ -173,11 +178,11 @@ For Antigravity:
 agy models
 ```
 
-For external lanes, use the supervisor's `lane.log`. The user may watch that file outside the model context. Codex should not read or summarize routine output; it reads the bounded result after completion and a limited log tail only for an unexplained failure.
+For external lanes, use the broker's log file. The user may watch that file outside the main model context. Codex should not read or summarize routine output; the broker returns a bounded tail after completion.
 
 For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Use `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 
-Claude Code `-p` text output can stay quiet until final output. The supervisor keeps waiting without requiring Codex status turns.
+Claude Code `-p` text output can stay quiet until final output. Quiet output is not a failure signal.
 
 ## License
 

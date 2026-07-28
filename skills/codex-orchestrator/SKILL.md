@@ -20,7 +20,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For every external CLI lane, use the bundled supervisor.
+4. For every external CLI lane, spawn one lightweight broker sub-agent.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Continue useful local work while delegated lanes run.
 7. Review returned changes before integrating them.
@@ -39,49 +39,35 @@ Every delegated task must include all five parts. The worker should not need pri
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
-## Zero-Poll CLI Mode
+## Broker CLI Mode
 
-Read [references/zero-poll-lanes.md](references/zero-poll-lanes.md) and launch every Grok, Claude, Antigravity, and Codex CLI lane with `scripts/lane-supervisor.sh`. Do not estimate task duration and do not run an external lane in the foreground.
+Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, and one Gemini broker controls only Antigravity `agy`.
 
-The supervisor is a non-model process. It waits for the external CLI, writes a small state snapshot, keeps the full log outside model context, limits the result snapshot, creates a completion marker, and rejects duplicate starts for the same lane, working directory, and spec.
-
-After a supervised lane returns `STARTED`:
-
-- Do not poll it on a timer.
-- Do not read its log or session files while it runs.
-- Use a runtime completion callback for the supervisor's `done` marker when available.
-- When no completion callback exists, report the start receipt and end the current turn. Resume only after the user returns or an external completion notification arrives.
-- Read the small state and result snapshots once after a terminal event, then inspect the diff and verify.
-
-## Optional Broker Mode
-
-Use a lightweight broker sub-agent for external CLI lanes only when the user explicitly asks to see broker sub-agents in the Codex UI, asks for broker mode, or wants structured status cards for long-running lanes. "Broker" is a role assigned to a Codex sub-agent, not a separate system. The broker is one-to-one with a single external lane: one Grok broker sub-agent controls only Grok, one Claude broker sub-agent controls only Claude, and one Antigravity broker sub-agent controls only `agy`.
-
-Broker mode is easier to watch in the Codex UI, but it consumes Codex tokens because the broker itself is a Codex sub-agent. Use supervisor mode without a broker when saving Codex tokens is more important than UI status cards.
+The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Use the cheapest low-latency sub-agent model available, preferably `gpt-5.4-mini` with low reasoning.
 
 Broker duties:
 
-- Receive lane name, command, cwd, spec path, log path, and expected mode.
-- Start exactly one external CLI process.
-- Keep pid, prompt path, log path, exit code, and last status.
-- Start the bundled supervisor and retain its state directory.
-- Report only the start receipt, terminal state, or attention-needed state.
+- Receive only lane metadata, command, cwd, spec path, log path, and expected mode.
+- Start exactly one external CLI process and keep the same process until terminal.
+- Save full stdout/stderr to the requested log path without returning routine output.
+- If the shell tool yields, wait on that same session at the longest supported timeout. Do not start another process.
+- Return only the terminal status and a bounded final log tail.
 - Avoid reading, restating, or summarizing routine logs.
 - Avoid judging code quality, architecture, findings, or completion correctness.
 
 Broker status vocabulary:
 
 ```text
-STARTED lane=<name> pid=<pid> log=<path> prompt=<path>
-RUNNING lane=<name> evidence=<process|session|tool|diff>
 NEEDS_ATTENTION lane=<name> reason=<short reason> evidence=<short evidence>
 EXITED lane=<name> status=<code> log=<path>
 FAILED_TO_START lane=<name> reason=<short reason> log=<path>
 ```
 
-Use the cheapest adequate sub-agent model if model selection is available, such as `5.4-mini` or the smallest low-latency model exposed by the runtime. Give the broker only lane metadata and file paths, not parent history or the spec contents. The broker prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not read routine logs, and do not stop a lane because stdout is quiet for a short period.
+Give the broker file paths, not parent history or copied spec contents. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read routine logs, and do not stop a lane because stdout is quiet.
 
 The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts, inspects diffs, and runs verification. Broker reports are lifecycle evidence only.
+
+After spawning brokers, call `agents.wait` once with `timeout_ms=900000`. A wait timeout means the broker is still running; it does not mean failure. Do not ask for status, read the broker transcript, or spawn a replacement. Call one more 15-minute wait only when the prior wait times out. If the user asks for status, report the native agent state without reading CLI logs.
 
 ## Lane Selection
 
@@ -130,7 +116,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-Use supervised Zero-Poll mode for every external lane, regardless of expected duration. Use broker mode only when the user explicitly asks for broker sub-agents, visible sub-agent cards, or structured broker status.
+Use Broker CLI mode for every external lane, regardless of expected duration.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -172,7 +158,7 @@ Match permissions to the lane contract:
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
-Edit-capable command payloads to pass after the supervisor's `--` separator:
+Edit-capable commands for the broker:
 
 ```bash
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
@@ -180,7 +166,7 @@ claude -p --model sonnet --effort high --permission-mode bypassPermissions
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 ```
 
-Read-only command payloads to pass after the supervisor's `--` separator:
+Read-only commands for the broker:
 
 ```bash
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
@@ -194,30 +180,30 @@ A quiet terminal is not proof that an external agent has stopped. Headless wrapp
 
 When an external lane is running:
 
-1. Retain the supervisor state directory and the one-line start receipt.
-2. Do not schedule heartbeat, status, session, log, diff, or tool-history checks.
-3. Treat only a completion callback, a supervisor terminal marker, an explicit CLI terminal event, or a user status request as permission to inspect state.
-4. For a user status request, read only the supervisor state snapshot. Do not add a log read unless the snapshot is terminal and indicates failure.
-5. On a terminal event, read state once and result once. Read a bounded log tail only when failure diagnosis requires it.
+1. Retain the broker agent ID, CLI session ID when available, prompt path, and log path.
+2. Call `agents.wait` with `timeout_ms=900000`; do not use short waits or heartbeat sweeps.
+3. A wait timeout means still running. Keep the same broker and call one more long wait.
+4. Do not read agent transcripts, CLI logs, diffs, or tool history while the broker is active.
+5. Do not send routine status questions to the broker.
 6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
-7. Never start the same task again when the supervisor reports `ALREADY_RUNNING`.
+7. On terminal state, read the broker's bounded final report once, then inspect the actual diff.
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
 ### Visible Logs
 
-Keep full external output outside the model context. Return the supervisor's log path to the user so they can watch it in a terminal or dashboard without making the main model read it.
+Keep full external output outside the main model context. Return the broker's log path to the user so they can watch it in a terminal without making the main session read it.
 
 For external CLI invocations:
 
-- Let the supervisor write `lane.log`; do not stream external output through the model tool response.
-- Do not invoke an external lane through a foreground shell pipeline or `tee`.
+- Let the broker redirect full output to a unique log file.
+- Return at most the final 16 KiB of that log after the CLI exits.
 - Keep the log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
 - Inspect the saved log only after a terminal failure when the bounded result does not explain it.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
 
-Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one supervised CLI lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
+Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one broker lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
 
 Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--model sonnet --effort high` for the Claude lane unless the user asks for a different Claude model or effort such as `max`. Do not rerun a quiet Claude lane or inspect its stream while it is active.
 
@@ -227,7 +213,7 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
-The following examples are command payloads to pass after the supervisor's `--` separator:
+The following examples are commands for the broker:
 
 ```bash
 # User specified a model for write-producing work.
@@ -255,11 +241,11 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Compute its task key and start the bundled supervisor.
-4. Retain only the start receipt and state directory in the main context.
-5. Register a completion callback when available; otherwise end the current turn after reporting `STARTED`.
-6. Do not poll or read routine logs while the lane runs.
-7. On a terminal event, read the state and bounded result once.
+3. Spawn one lightweight broker sub-agent with the lane metadata and paths.
+4. Retain only the broker agent ID and log path in the main context.
+5. Wait once with `timeout_ms=900000`.
+6. If that wait times out, wait again without reading logs or asking for status.
+7. On terminal state, read the broker's bounded report once.
 8. Read a bounded log tail only for an unexplained failure.
 9. Inspect the actual diff.
 10. Run verification yourself.
