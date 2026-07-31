@@ -1,6 +1,6 @@
 ---
 name: codex-orchestrator
-description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok, claude, or agy. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
+description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok, claude, agy, or luna. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
 ---
 
 # Codex Orchestrator
@@ -41,7 +41,7 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 
 ## Broker CLI Mode
 
-Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, and one Gemini broker controls only Antigravity `agy`.
+Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, one Gemini broker controls only Antigravity `agy`, and one Luna broker controls only its Codex CLI process.
 
 The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Use the cheapest low-latency sub-agent model available, preferably `gpt-5.4-mini` with low reasoning.
 
@@ -77,6 +77,7 @@ Use the cheapest adequate lane:
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
 - Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.6-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
+- Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-5.6-luna` with `max` reasoning.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -87,6 +88,8 @@ Use the cheapest adequate lane:
 When this skill is active, "agent" means the skill's preferred delegated agents unless the user says "Codex sub-agent", `worker`, or `explorer`. The preferred order is Grok first, Claude second, Antigravity third. Use Codex `worker` / `explorer` only when the user explicitly asks for Codex sub-agents, or after a requested preferred lane is unavailable and the user chooses Codex sub-agents instead.
 
 Do not use an Antigravity Claude model. If the user asks for Claude, use the Claude CLI lane. If the user asks for Gemini, use the Antigravity `agy` lane with a Gemini model.
+
+Treat `luna` as an exact lane alias for Codex CLI model `gpt-5.6-luna` with reasoning effort `max`. Do not route a `luna` request to a generic Codex `worker`, `explorer`, or the main session.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -164,6 +167,7 @@ Edit-capable commands for the broker:
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
 Read-only commands for the broker:
@@ -172,6 +176,7 @@ Read-only commands for the broker:
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high
 agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
 ```
 
 ### External Agent Lifecycle
@@ -213,6 +218,8 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
+`luna` is a fixed alias, not an unspecified model request. Always pass both `--model gpt-5.6-luna` and `-c 'model_reasoning_effort="max"'`.
+
 The following examples are commands for the broker:
 
 ```bash
@@ -221,6 +228,7 @@ GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 -
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
@@ -235,7 +243,7 @@ Gemini is an Antigravity `agy` request. Use `agy --model "<Gemini model>"` for G
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
-Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. For write-producing work, pass `--dangerously-bypass-approvals-and-sandbox`; always verify the diff before accepting changes.
+Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer or says `luna`. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. For write-producing work, pass `--dangerously-bypass-approvals-and-sandbox`; always verify the diff before accepting changes.
 
 For external CLI work:
 

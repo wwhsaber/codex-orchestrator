@@ -53,6 +53,15 @@ agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
   --print-timeout 15m --model gemini-3.6-flash-high
 ```
 
+Luna:
+
+```bash
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
+  --sandbox read-only --cd "$CWD" - < "$SPEC"
+```
+
+For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`.
+
 Add each CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
 
 ## Parent Wait

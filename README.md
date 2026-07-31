@@ -94,7 +94,7 @@ Restart Codex after installing or updating the plugin.
 - Keeps the main Codex session as architect.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
-- Supports optional external CLI lanes such as `grok`, `claude`, `agy`, and `codex` when those tools are installed and authenticated.
+- Supports optional external CLI lanes such as `grok`, `claude`, `agy`, `luna`, and `codex` when those tools are installed and authenticated.
 - Runs every external CLI lane through a lightweight one-to-one broker sub-agent.
 - Uses long native agent waits instead of short status polling.
 - Requires final verification from the main session before calling work done.
@@ -107,6 +107,7 @@ The main Codex session writes the spec and creates one broker sub-agent per exte
 Grok broker sub-agent -> grok
 Claude broker sub-agent -> claude
 Antigravity broker sub-agent -> agy / Gemini
+Luna broker sub-agent -> codex / GPT-5.6 Luna Max
 ```
 
 The broker starts one external process, saves its full output to a log file, and reports only terminal status plus a bounded output tail. It does not review code, narrate progress, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
@@ -142,6 +143,14 @@ agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-
 If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `gemini-3.6-flash-high`.
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
+
+`luna` always means an independent Codex CLI lane using `gpt-5.6-luna` with reasoning effort `max`:
+
+```bash
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
+```
+
+For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
 
 ## Long Native Waits
 
