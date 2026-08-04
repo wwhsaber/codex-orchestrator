@@ -7,7 +7,7 @@ Use one lightweight Codex broker sub-agent for each external CLI lane. The broke
 The broker and the external producer are separate layers:
 
 ```text
-Broker: gpt-5.6-luna, low reasoning, default service, fork_turns=none
+Broker: gpt-5.4-mini, low reasoning, default service, fork_turns=none
 Luna producer: gpt-5.6-luna, max reasoning, priority service (Fast)
 ```
 

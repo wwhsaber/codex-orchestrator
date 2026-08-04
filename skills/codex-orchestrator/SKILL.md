@@ -43,13 +43,13 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 
 Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, one Gemini broker controls only Antigravity `agy`, and one Luna broker controls only its Codex CLI process.
 
-The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Spawn every broker with `fork_turns="none"`. Use `gpt-5.6-luna` with `low` reasoning and the default service tier; do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
+The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Spawn every broker with `fork_turns="none"`. Use `gpt-5.4-mini` with `low` reasoning and the default service tier; do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
 
 Required local configuration:
 
 ```toml
 [agents]
-default_subagent_model = "gpt-5.6-luna"
+default_subagent_model = "gpt-5.4-mini"
 default_subagent_reasoning_effort = "low"
 
 [features.multi_agent_v2]

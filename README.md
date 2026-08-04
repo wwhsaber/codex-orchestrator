@@ -115,7 +115,7 @@ The broker starts one external process, saves its full output to a log file, and
 Broker and producer settings are intentionally separate:
 
 ```text
-Broker: GPT-5.6 Luna Low, default service, no parent context
+Broker: GPT-5.4 Mini Low, default service, no parent context
 Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
@@ -165,7 +165,7 @@ Every external lane runs through a lightweight broker sub-agent. Configure `mult
 
 ```toml
 [agents]
-default_subagent_model = "gpt-5.6-luna"
+default_subagent_model = "gpt-5.4-mini"
 default_subagent_reasoning_effort = "low"
 
 [features.multi_agent_v2]
