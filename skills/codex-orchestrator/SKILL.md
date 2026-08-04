@@ -43,7 +43,26 @@ If the spec cannot be written clearly, keep the decision in the main session unt
 
 Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, one Gemini broker controls only Antigravity `agy`, and one Luna broker controls only its Codex CLI process.
 
-The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Use the cheapest low-latency sub-agent model available, preferably `gpt-5.4-mini` with low reasoning.
+The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Spawn every broker with `fork_turns="none"`. Use `gpt-5.6-luna` with `low` reasoning and the default service tier; do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
+
+Required local configuration:
+
+```toml
+[agents]
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "low"
+
+[features.multi_agent_v2]
+enabled = true
+hide_spawn_agent_metadata = false
+tool_namespace = "agents"
+max_concurrent_threads_per_session = 7
+min_wait_timeout_ms = 10000
+default_wait_timeout_ms = 30000
+max_wait_timeout_ms = 900000
+```
+
+The 30-second value is the general default only. This skill must explicitly call `agents.wait` with `timeout_ms=900000`.
 
 Broker duties:
 
@@ -63,7 +82,7 @@ EXITED lane=<name> status=<code> log=<path>
 FAILED_TO_START lane=<name> reason=<short reason> log=<path>
 ```
 
-Give the broker file paths, not parent history or copied spec contents. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read routine logs, and do not stop a lane because stdout is quiet.
+Give the broker file paths, not parent history or copied spec contents. Set `fork_turns="none"` on every broker spawn. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read routine logs, and do not stop a lane because stdout is quiet.
 
 The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts, inspects diffs, and runs verification. Broker reports are lifecycle evidence only.
 

@@ -2,6 +2,17 @@
 
 Use one lightweight Codex broker sub-agent for each external CLI lane. The broker runs one process, saves its output, and returns only terminal evidence.
 
+## Runtime Profile
+
+The broker and the external producer are separate layers:
+
+```text
+Broker: gpt-5.6-luna, low reasoning, default service, fork_turns=none
+Luna producer: gpt-5.6-luna, max reasoning, priority service (Fast)
+```
+
+Do not let a broker inherit the parent's model, reasoning effort, service tier, or conversation history.
+
 ## Broker Input
 
 Pass only:

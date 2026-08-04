@@ -112,6 +112,13 @@ Luna broker sub-agent -> codex / GPT-5.6 Luna Max / Fast
 
 The broker starts one external process, saves its full output to a log file, and reports only terminal status plus a bounded output tail. It does not review code, narrate progress, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
 
+Broker and producer settings are intentionally separate:
+
+```text
+Broker: GPT-5.6 Luna Low, default service, no parent context
+Luna producer: GPT-5.6 Luna Max, Fast service
+```
+
 The main session waits for brokers with one `agents.wait` call of up to 15 minutes. A wait timeout does not terminate the broker or CLI; the main session waits again without reading logs or requesting status.
 
 ## Model Selection
@@ -157,17 +164,21 @@ For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` 
 Every external lane runs through a lightweight broker sub-agent. Configure `multi_agent_v2` so the main session can wait for up to 15 minutes in one native tool call:
 
 ```toml
+[agents]
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "low"
+
 [features.multi_agent_v2]
 enabled = true
 hide_spawn_agent_metadata = false
 tool_namespace = "agents"
 max_concurrent_threads_per_session = 7
 min_wait_timeout_ms = 10000
-default_wait_timeout_ms = 900000
+default_wait_timeout_ms = 30000
 max_wait_timeout_ms = 900000
 ```
 
-The main Codex session does not read session JSONL, ask for routine status, or inspect logs while a broker is active. See `skills/codex-orchestrator/references/broker-lanes.md` for the broker contract and commands.
+The 30-second value remains the general default. Codex Orchestrator explicitly calls `agents.wait(timeout_ms=900000)` and does not read session JSONL, ask for routine status, or inspect logs while a broker is active. See `skills/codex-orchestrator/references/broker-lanes.md` for the broker contract and commands.
 
 For Grok:
 
