@@ -77,7 +77,7 @@ Use the cheapest adequate lane:
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
 - Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.6-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
-- Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-5.6-luna` with `max` reasoning.
+- Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-5.6-luna` with `max` reasoning and Fast service.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -89,7 +89,7 @@ When this skill is active, "agent" means the skill's preferred delegated agents 
 
 Do not use an Antigravity Claude model. If the user asks for Claude, use the Claude CLI lane. If the user asks for Gemini, use the Antigravity `agy` lane with a Gemini model.
 
-Treat `luna` as an exact lane alias for Codex CLI model `gpt-5.6-luna` with reasoning effort `max`. Do not route a `luna` request to a generic Codex `worker`, `explorer`, or the main session.
+Treat `luna` as an exact lane alias for Codex CLI model `gpt-5.6-luna` with reasoning effort `max` and service tier `priority`, which the Codex model catalog labels Fast. Do not route a `luna` request to a generic Codex `worker`, `explorer`, or the main session.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -167,7 +167,7 @@ Edit-capable commands for the broker:
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high --permission-mode bypassPermissions
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
 Read-only commands for the broker:
@@ -176,7 +176,7 @@ Read-only commands for the broker:
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
 claude -p --model sonnet --effort high
 agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
 ```
 
 ### External Agent Lifecycle
@@ -218,7 +218,7 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
-`luna` is a fixed alias, not an unspecified model request. Always pass both `--model gpt-5.6-luna` and `-c 'model_reasoning_effort="max"'`.
+`luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
 The following examples are commands for the broker:
 
@@ -228,7 +228,7 @@ GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 -
 claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
 agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
 codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 
 # User did not specify a model; use each lane default for write-producing work.
 GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"

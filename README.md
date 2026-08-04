@@ -107,7 +107,7 @@ The main Codex session writes the spec and creates one broker sub-agent per exte
 Grok broker sub-agent -> grok
 Claude broker sub-agent -> claude
 Antigravity broker sub-agent -> agy / Gemini
-Luna broker sub-agent -> codex / GPT-5.6 Luna Max
+Luna broker sub-agent -> codex / GPT-5.6 Luna Max / Fast
 ```
 
 The broker starts one external process, saves its full output to a log file, and reports only terminal status plus a bounded output tail. It does not review code, narrate progress, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
@@ -144,10 +144,10 @@ If you do not specify a model, the CLI default is used, except Claude and Antigr
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
-`luna` always means an independent Codex CLI lane using `gpt-5.6-luna` with reasoning effort `max`:
+`luna` always means an independent Codex CLI lane using `gpt-5.6-luna` with reasoning effort `max` and Fast service. Fast maps to the `priority` service tier:
 
 ```bash
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
 ```
 
 For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
