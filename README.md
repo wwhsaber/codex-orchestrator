@@ -120,7 +120,7 @@ Lane supervisor: shell process, no model
 Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
-The main session waits once only for Broker launch receipts. It does not wait for external CLI completion, poll status, read logs, or keep the Broker alive. The completed Broker card means “background lane launched,” not “external work completed.”
+The main session waits once for Broker launch receipts, then enters one silent `lane-supervisor.sh await` command. The shell waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never polls status, reads routine logs, or keeps the Broker alive. The completed Broker card means “background lane launched,” not “external work completed.”
 
 ## Model Selection
 

@@ -105,22 +105,33 @@ Add each other CLI's broad edit approval flags for write-producing work. Gemini 
 Wait once for the launcher brokers to return their receipts. After every receipt:
 
 1. Report `state`, `log`, `result`, and `done` paths to the user.
-2. End the current turn if the external lane still owns files that may change.
+2. Start one silent, blocking supervisor wait in the main session:
+
+```bash
+"$SUPERVISOR" await --state-dir "$STATE_DIR"
+```
+
 3. Do not poll `status`, agent transcripts, logs, diffs, or the `done` marker.
-4. The user may watch `lane.log` directly without routing it through a model.
-5. Resume when the user returns or an external completion event is available.
+4. Do not narrate waiting progress or summarize routine activity.
+5. If the command tool yields a live shell session, continue only that same session with the longest supported wait. Never start another wait or read another artifact.
+6. The user may watch `lane.log` directly without routing it through a model.
+7. When `await` returns, use its single terminal state and bounded result to inspect the diff and verify.
+
+For multiple lanes, run all required `await` commands inside one blocking shell invocation so the main model does not wake between lane completions.
 
 The completed Broker card proves only that the background lane was launched. It does not claim that the external task finished.
 
-## Status And Result
+## Await, Status And Result
 
-Only when the user explicitly asks for status, or after a real completion event:
+`await` emits nothing while the process runs. After `done` appears, it returns `AWAIT_COMPLETE`, the state snapshot, and `result.txt` exactly once. This keeps automatic continuation without model-side status turns.
+
+Use `status` separately only when the user explicitly asks for status:
 
 ```bash
 "$SUPERVISOR" status --state-dir "$STATE_DIR"
 ```
 
-When state is `exited` or `failed`, read the bounded result once:
+Use `result` separately only when state is already terminal and `await` was not used:
 
 ```bash
 "$SUPERVISOR" result --state-dir "$STATE_DIR"

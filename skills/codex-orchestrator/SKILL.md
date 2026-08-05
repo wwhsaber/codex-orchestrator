@@ -22,8 +22,8 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 3. For each delegated task, write the full five-part spec below.
 4. For every external CLI lane, spawn one lightweight one-shot broker launcher.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
-6. After launcher receipts arrive, stop model-side monitoring while delegated lanes run.
-7. Review returned changes after a completion event before integrating them.
+6. After launcher receipts arrive, enter one silent supervisor `await` command without model-side polling.
+7. When `await` returns terminal state and result, review changes before integrating them.
 8. Run the verification command yourself.
 9. Report only what the diff and verification evidence support.
 
@@ -86,9 +86,9 @@ FAILED_TO_START lane=<name> reason=<short reason>
 
 Give the broker file paths, not parent history or copied spec contents. Set `fork_turns="none"` on every broker spawn. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read any lane artifacts after launch, do not wait for completion, and finish immediately after the launch receipt.
 
-The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after a real completion event, inspects diffs, and runs verification. A completed Broker card is launch evidence only; it is not external-task completion evidence.
+The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after supervisor `await` returns, inspects diffs, and runs verification. A completed Broker card is launch evidence only; it is not external-task completion evidence.
 
-After spawning brokers, call `agents.wait` once for their launch receipts. Once all receipts arrive, report the supervisor paths and end the current turn while write-producing lanes own their assigned files. Do not poll the broker, supervisor state, `done` marker, logs, diffs, or session files. Resume when the user returns or a real external completion event is available. If the user explicitly asks for status, read only the supervisor's small state snapshot once.
+After spawning brokers, call `agents.wait` once for their launch receipts. Once all receipts arrive, report the supervisor paths and invoke `scripts/lane-supervisor.sh await --state-dir <dir>` once. The command blocks without model output and returns terminal state plus bounded result. Do not poll the broker, supervisor state, `done` marker, logs, diffs, or session files. Do not say that you are continuously monitoring. If the shell tool yields, continue only the same shell session with the longest supported wait and no commentary. For multiple lanes, await them inside one blocking shell invocation.
 
 ## Lane Selection
 
@@ -208,11 +208,13 @@ When an external lane is launched:
 
 1. Retain the broker ID, prompt path, state directory, log path, result path, and done path.
 2. Wait once for the broker launcher receipt; do not wait for the external CLI through the broker.
-3. After `STARTED` or `ALREADY_RUNNING`, let the broker finish and end model-side monitoring.
+3. After `STARTED` or `ALREADY_RUNNING`, let the broker finish and start one supervisor `await` in the main session.
 4. Do not read agent transcripts, supervisor state, CLI logs, diffs, `done`, or tool history while the lane runs.
 5. Do not send routine status questions to the broker and do not create a replacement broker.
 6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
-7. Resume only when the user returns or a real completion event is available. Read state and result once, then inspect the actual diff.
+7. The shell wait emits nothing while running. When it returns terminal state and result, inspect the actual diff.
+
+Waiting must remain a non-model operation. Never produce updates such as "I am continuously monitoring", never read routine progress, and never start periodic status commands. If the command tool exposes a live session after yielding, wait on that same session at the maximum interval without any intervening analysis or user-facing narration.
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
@@ -278,9 +280,9 @@ For external CLI work:
 4. Spawn one Terra Low broker launcher with the exact supervisor start command and `fork_turns="none"`.
 5. Wait once for `STARTED`, `ALREADY_RUNNING`, or a launch error.
 6. Retain only the state directory and artifact paths after the broker finishes.
-7. End the current turn without polling while the lane runs.
-8. On a completion event or explicit user request, read the small state snapshot once.
-9. When terminal, read the bounded result once and inspect the actual diff.
+7. Invoke one silent `lane-supervisor.sh await` command; for multiple lanes, put all awaits in the same shell invocation.
+8. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.
+9. When `await` returns, inspect the returned terminal state, bounded result, and actual diff.
 10. Run verification yourself.
 11. Report status, changed files, verification output, log path, and any gaps.
 

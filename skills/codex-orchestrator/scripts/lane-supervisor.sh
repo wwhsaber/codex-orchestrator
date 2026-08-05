@@ -8,6 +8,7 @@ usage() {
     'Usage:' \
     '  lane-supervisor.sh key --lane NAME --cwd DIR --spec FILE' \
     '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
+    '  lane-supervisor.sh await --state-dir DIR' \
     '  lane-supervisor.sh status --state-dir DIR' \
     '  lane-supervisor.sh result --state-dir DIR'
 }
@@ -395,6 +396,53 @@ command_status() {
   fi
 }
 
+command_await() {
+  shift
+  if [ "${1-}" != "--state-dir" ] || [ -z "${2-}" ]; then
+    usage >&2
+    exit 2
+  fi
+
+  state_dir=$2
+  state_file=$state_dir/state
+  result_file=$state_dir/result.txt
+  done_file=$state_dir/done
+  launcher_pid_file=$state_dir/launcher.pid
+
+  if [ ! -f "$state_file" ]; then
+    printf 'MISSING state=%s\n' "$state_file" >&2
+    exit 1
+  fi
+
+  while [ ! -f "$done_file" ]; do
+    lane_state=$(read_field state "$state_file")
+    lane_pid=$(read_field pid "$state_file")
+    if [ "$lane_state" = "starting" ] && [ -f "$launcher_pid_file" ]; then
+      lane_pid=$(sed -n '1p' "$launcher_pid_file")
+    fi
+
+    case "$lane_state:$lane_pid" in
+      starting:0|running:0|starting:|running:|starting:*[!0-9]*|running:*[!0-9]*) ;;
+      starting:*|running:*)
+        if ! kill -0 "$lane_pid" 2>/dev/null; then
+          printf 'AWAIT_ABORTED\n'
+          cat "$state_file"
+          printf 'observed_state=process_missing\n'
+          exit 1
+        fi
+        ;;
+    esac
+    sleep 2
+  done
+
+  printf 'AWAIT_COMPLETE\n'
+  cat "$state_file"
+  printf '%s\n' '--- result ---'
+  if [ -f "$result_file" ]; then
+    cat "$result_file"
+  fi
+}
+
 command_result() {
   shift
   if [ "${1-}" != "--state-dir" ] || [ -z "${2-}" ]; then
@@ -420,6 +468,7 @@ command_result() {
 case "${1-}" in
   key) command_key "$@" ;;
   start) command_start "$@" ;;
+  await) command_await "$@" ;;
   status) command_status "$@" ;;
   result) command_result "$@" ;;
   _run) command_run "$@" ;;
