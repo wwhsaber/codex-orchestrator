@@ -1,17 +1,18 @@
-# Broker Lanes
+# Broker Launcher Lanes
 
-Use one lightweight Codex broker sub-agent for each external CLI lane. The broker runs one process, saves its output, and returns only terminal evidence.
+Use one lightweight Codex broker sub-agent to launch each external CLI lane. The broker starts the bundled non-model supervisor and exits as soon as the supervisor returns `STARTED` or `ALREADY_RUNNING`. It never waits for the external CLI process.
 
 ## Runtime Profile
 
-The broker and the external producer are separate layers:
+The launcher and the external producer are separate layers:
 
 ```text
-Broker: gpt-5.4-mini, low reasoning, default service, fork_turns=none
+Broker launcher: gpt-5.6-terra, low reasoning, default service, fork_turns=none
+Lane supervisor: shell process, no model and no Codex tokens
 Luna producer: gpt-5.6-luna, max reasoning, priority service (Fast)
 ```
 
-Do not let a broker inherit the parent's model, reasoning effort, service tier, or conversation history.
+Do not let a broker inherit the parent's conversation history. Terra Low is the lightest native sub-agent profile accepted by the current runtime; do not enable Fast for a broker.
 
 ## Broker Input
 
@@ -20,8 +21,7 @@ Pass only:
 - Lane name.
 - Working directory.
 - Spec path.
-- Log path.
-- Exact CLI command.
+- Exact supervisor start command.
 - Read-only or write-producing mode.
 
 Do not copy parent history or the spec body into the broker prompt.
@@ -31,60 +31,90 @@ Do not copy parent history or the spec body into the broker prompt.
 Use this contract:
 
 ```text
-You are a lightweight process broker for exactly one external CLI lane.
-Start the supplied command once in the supplied working directory.
-Save full stdout and stderr to the supplied log path.
+You are a one-shot launcher for exactly one external CLI lane.
+Run the supplied lane-supervisor.sh start command once.
+Do not run the external CLI directly.
 Do not analyze the task, rewrite the spec, inspect the diff, or narrate progress.
-Do not read routine logs while the command runs.
-If the shell tool yields, wait on the same session using its longest supported timeout.
-Quiet output and a parent wait timeout are not failures.
-Never start a duplicate process.
-When the command exits, return its exit status, log path, and at most the final 16 KiB of output.
+Do not read the lane log, result, state, or done marker after launch.
+Never wait for the external CLI and never start a duplicate process.
+Return the single STARTED, ALREADY_RUNNING, or launch-error receipt, then finish immediately.
 ```
 
-## CLI Commands
+## State Directory
+
+Before spawning the broker, the main session computes the stable task key and state directory:
+
+```bash
+SUPERVISOR="$SKILL_DIR/scripts/lane-supervisor.sh"
+TASK_KEY=$("$SUPERVISOR" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
+STATE_DIR="${TMPDIR:-/tmp}/codex-orchestrator/$TASK_KEY"
+```
+
+The task key combines lane, working directory, and spec content. Starting the same live task again returns `ALREADY_RUNNING` instead of creating another external process.
+
+## Start Commands
 
 Grok:
 
 ```bash
-env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false \
+"$SUPERVISOR" start \
+  --lane grok --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" -- \
+  env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false \
   grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$CWD"
 ```
 
 Claude:
 
 ```bash
-claude -p --model sonnet --effort high < "$SPEC"
+"$SUPERVISOR" start \
+  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" -- \
+  claude -p --model sonnet --effort high
 ```
 
 Antigravity:
 
 ```bash
-agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
+"$SUPERVISOR" start \
+  --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" -- \
+  agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
   --print-timeout 15m --model gemini-3.6-flash-high
 ```
 
 Luna:
 
 ```bash
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
-  -c 'service_tier="priority"' \
-  --sandbox read-only --cd "$CWD" - < "$SPEC"
+"$SUPERVISOR" start \
+  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" -- \
+  codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
+  -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
 ```
 
-For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`.
+For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Add each CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
 
-Add each CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
+## After Launch
 
-## Parent Wait
+Wait once for the launcher brokers to return their receipts. After every receipt:
 
-After spawning all requested brokers:
+1. Report `state`, `log`, `result`, and `done` paths to the user.
+2. End the current turn if the external lane still owns files that may change.
+3. Do not poll `status`, agent transcripts, logs, diffs, or the `done` marker.
+4. The user may watch `lane.log` directly without routing it through a model.
+5. Resume when the user returns or an external completion event is available.
 
-1. Call `agents.wait` once for all active broker IDs with `timeout_ms=900000`.
-2. If the wait returns terminal results, review each bounded report.
-3. If it times out, keep the same agent IDs and call one more 15-minute wait.
-4. Do not read transcripts, logs, diffs, or session files between waits.
-5. Do not send status prompts or create replacement brokers.
-6. A wait timeout never cancels the broker or its CLI process.
+The completed Broker card proves only that the background lane was launched. It does not claim that the external task finished.
 
-After a broker exits, inspect the working-tree diff and run verification in the main session.
+## Status And Result
+
+Only when the user explicitly asks for status, or after a real completion event:
+
+```bash
+"$SUPERVISOR" status --state-dir "$STATE_DIR"
+```
+
+When state is `exited` or `failed`, read the bounded result once:
+
+```bash
+"$SUPERVISOR" result --state-dir "$STATE_DIR"
+```
+
+`result.txt` contains at most the final 16 KiB of output. `lane.log` retains full output for targeted failure diagnosis. After completion, inspect the actual diff and run verification in the main session.

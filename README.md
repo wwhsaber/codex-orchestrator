@@ -95,35 +95,36 @@ Restart Codex after installing or updating the plugin.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
 - Supports optional external CLI lanes such as `grok`, `claude`, `agy`, `luna`, and `codex` when those tools are installed and authenticated.
-- Runs every external CLI lane through a lightweight one-to-one broker sub-agent.
-- Uses long native agent waits instead of short status polling.
+- Uses a lightweight one-to-one broker sub-agent only to launch each external CLI lane.
+- Moves process waiting and logging to a non-model supervisor so idle lanes consume no Broker tokens.
 - Requires final verification from the main session before calling work done.
 
 ## External CLI Mode
 
-The main Codex session writes the spec and creates one broker sub-agent per external CLI lane. "Broker" is the role assigned to that sub-agent, not a separate service:
+The main Codex session writes the spec and creates one broker launcher sub-agent per external CLI lane:
 
 ```text
-Grok broker sub-agent -> grok
-Claude broker sub-agent -> claude
-Antigravity broker sub-agent -> agy / Gemini
-Luna broker sub-agent -> codex / GPT-5.6 Luna Max / Fast
+Grok broker launcher -> shell supervisor -> grok
+Claude broker launcher -> shell supervisor -> claude
+Antigravity broker launcher -> shell supervisor -> agy / Gemini
+Luna broker launcher -> shell supervisor -> codex / GPT-5.6 Luna Max / Fast
 ```
 
-The broker starts one external process, saves its full output to a log file, and reports only terminal status plus a bounded output tail. It does not review code, narrate progress, or decide whether the final diff is correct. The main Codex session still writes the spec, judges results, and runs verification.
+The Broker runs one supervisor start command, reports `STARTED`, and exits immediately. The shell supervisor waits for the external process, saves full output, writes a small state snapshot and completion marker, and stores at most the final 16 KiB in `result.txt`. It uses no model and consumes no Codex tokens. The main Codex session still writes the spec, judges completed results, and runs verification.
 
 Broker and producer settings are intentionally separate:
 
 ```text
-Broker: GPT-5.4 Mini Low, default service, no parent context
+Broker launcher: GPT-5.6 Terra Low, default service, no parent context
+Lane supervisor: shell process, no model
 Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
-The main session waits for brokers with one `agents.wait` call of up to 15 minutes. A wait timeout does not terminate the broker or CLI; the main session waits again without reading logs or requesting status.
+The main session waits once only for Broker launch receipts. It does not wait for external CLI completion, poll status, read logs, or keep the Broker alive. The completed Broker card means “background lane launched,” not “external work completed.”
 
 ## Model Selection
 
-If you specify a model, the skill passes the model flag to that CLI. The following examples are commands run by the broker.
+If you specify a model, the skill passes the model flag to that CLI. The following examples are external commands passed by the broker launcher to the supervisor.
 
 ```bash
 # User specified a model
@@ -159,13 +160,13 @@ codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_ti
 
 For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
 
-## Long Native Waits
+## Broker Launcher Configuration
 
-Every external lane runs through a lightweight broker sub-agent. Configure `multi_agent_v2` so the main session can wait for up to 15 minutes in one native tool call:
+Every external lane gets a short-lived Terra Low broker launcher. Configure `multi_agent_v2` so broker cards remain visible and launch waiting can use one native tool call:
 
 ```toml
 [agents]
-default_subagent_model = "gpt-5.4-mini"
+default_subagent_model = "gpt-5.6-terra"
 default_subagent_reasoning_effort = "low"
 
 [features.multi_agent_v2]
@@ -178,7 +179,7 @@ default_wait_timeout_ms = 30000
 max_wait_timeout_ms = 900000
 ```
 
-The 30-second value remains the general default. Codex Orchestrator explicitly calls `agents.wait(timeout_ms=900000)` and does not read session JSONL, ask for routine status, or inspect logs while a broker is active. See `skills/codex-orchestrator/references/broker-lanes.md` for the broker contract and commands.
+The 30-second value remains the general default. Codex Orchestrator may call `agents.wait(timeout_ms=900000)` once for launcher receipts, then lets each Broker finish. External execution continues under `skills/codex-orchestrator/scripts/lane-supervisor.sh`. See `skills/codex-orchestrator/references/broker-lanes.md` for the launcher contract and commands.
 
 For Grok:
 
@@ -198,7 +199,7 @@ For Antigravity:
 agy models
 ```
 
-For external lanes, use the broker's log file. The user may watch that file outside the main model context. Codex should not read or summarize routine output; the broker returns a bounded tail after completion.
+For external lanes, use the supervisor's `lane.log`. The user may watch that file outside the main model context. Codex should not read or summarize routine output; after completion it reads the bounded `result.txt` once.
 
 For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Use `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 

@@ -20,10 +20,10 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For every external CLI lane, spawn one lightweight broker sub-agent.
+4. For every external CLI lane, spawn one lightweight one-shot broker launcher.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
-6. Continue useful local work while delegated lanes run.
-7. Review returned changes before integrating them.
+6. After launcher receipts arrive, stop model-side monitoring while delegated lanes run.
+7. Review returned changes after a completion event before integrating them.
 8. Run the verification command yourself.
 9. Report only what the diff and verification evidence support.
 
@@ -39,17 +39,19 @@ Every delegated task must include all five parts. The worker should not need pri
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
-## Broker CLI Mode
+## Broker Launcher Mode
 
-Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane runs inside one lightweight Codex broker sub-agent. "Broker" is a role, not a separate service. Keep it one-to-one: one Grok broker controls only Grok, one Claude broker controls only Claude, one Gemini broker controls only Antigravity `agy`, and one Luna broker controls only its Codex CLI process.
+Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane gets one lightweight Codex broker launcher. "Broker" is a one-shot launcher role, not the process supervisor. Keep it one-to-one: one Grok broker launches only Grok, one Claude broker launches only Claude, one Gemini broker launches only Antigravity `agy`, and one Luna broker launches only its Codex CLI process.
 
-The broker owns process I/O and lifecycle only. The main session owns the spec, routing, diff review, and verification. Spawn every broker with `fork_turns="none"`. Use `gpt-5.4-mini` with `low` reasoning and the default service tier; do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
+The broker starts `scripts/lane-supervisor.sh` and exits immediately after receiving `STARTED` or `ALREADY_RUNNING`. The non-model supervisor owns process I/O, waiting, state, logs, and the completion marker. The main session owns the spec, routing, diff review, and verification.
+
+Spawn every broker with `fork_turns="none"`, `model="gpt-5.6-terra"`, `reasoning_effort="low"`, and the default service tier. Do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
 
 Required local configuration:
 
 ```toml
 [agents]
-default_subagent_model = "gpt-5.4-mini"
+default_subagent_model = "gpt-5.6-terra"
 default_subagent_reasoning_effort = "low"
 
 [features.multi_agent_v2]
@@ -62,31 +64,31 @@ default_wait_timeout_ms = 30000
 max_wait_timeout_ms = 900000
 ```
 
-The 30-second value is the general default only. This skill must explicitly call `agents.wait` with `timeout_ms=900000`.
+The 30-second value is the general default only. A broker launcher should complete quickly, but this skill may call `agents.wait` once with `timeout_ms=900000` so waiting itself does not create repeated model turns.
 
 Broker duties:
 
-- Receive only lane metadata, command, cwd, spec path, log path, and expected mode.
-- Start exactly one external CLI process and keep the same process until terminal.
-- Save full stdout/stderr to the requested log path without returning routine output.
-- If the shell tool yields, wait on that same session at the longest supported timeout. Do not start another process.
-- Return only the terminal status and a bounded final log tail.
+- Receive only lane metadata, cwd, spec path, state directory, exact supervisor start command, and expected mode.
+- Run the supplied supervisor start command exactly once.
+- Return the launch receipt and finish immediately.
+- Never run the external CLI directly.
+- Never wait for the external CLI, inspect state, or read routine output after launch.
 - Avoid reading, restating, or summarizing routine logs.
 - Avoid judging code quality, architecture, findings, or completion correctness.
 
 Broker status vocabulary:
 
 ```text
-NEEDS_ATTENTION lane=<name> reason=<short reason> evidence=<short evidence>
-EXITED lane=<name> status=<code> log=<path>
-FAILED_TO_START lane=<name> reason=<short reason> log=<path>
+STARTED lane=<name> pid=<pid> state=<path> log=<path> result=<path> done=<path>
+ALREADY_RUNNING lane=<name> pid=<pid> state=<path> log=<path> result=<path>
+FAILED_TO_START lane=<name> reason=<short reason>
 ```
 
-Give the broker file paths, not parent history or copied spec contents. Set `fork_turns="none"` on every broker spawn. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read routine logs, and do not stop a lane because stdout is quiet.
+Give the broker file paths, not parent history or copied spec contents. Set `fork_turns="none"` on every broker spawn. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read any lane artifacts after launch, do not wait for completion, and finish immediately after the launch receipt.
 
-The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts, inspects diffs, and runs verification. Broker reports are lifecycle evidence only.
+The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after a real completion event, inspects diffs, and runs verification. A completed Broker card is launch evidence only; it is not external-task completion evidence.
 
-After spawning brokers, call `agents.wait` once with `timeout_ms=900000`. A wait timeout means the broker is still running; it does not mean failure. Do not ask for status, read the broker transcript, or spawn a replacement. Call one more 15-minute wait only when the prior wait times out. If the user asks for status, report the native agent state without reading CLI logs.
+After spawning brokers, call `agents.wait` once for their launch receipts. Once all receipts arrive, report the supervisor paths and end the current turn while write-producing lanes own their assigned files. Do not poll the broker, supervisor state, `done` marker, logs, diffs, or session files. Resume when the user returns or a real external completion event is available. If the user explicitly asks for status, read only the supervisor's small state snapshot once.
 
 ## Lane Selection
 
@@ -138,7 +140,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-Use Broker CLI mode for every external lane, regardless of expected duration.
+Use Broker Launcher mode for every external lane, regardless of expected duration.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -180,7 +182,7 @@ Match permissions to the lane contract:
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
-Edit-capable commands for the broker:
+Edit-capable external commands passed to the supervisor:
 
 ```bash
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
@@ -189,7 +191,7 @@ agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions 
 codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
 ```
 
-Read-only commands for the broker:
+Read-only external commands passed to the supervisor:
 
 ```bash
 env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
@@ -200,29 +202,29 @@ codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_ti
 
 ### External Agent Lifecycle
 
-A quiet terminal is not proof that an external agent has stopped. Headless wrappers can return an early text chunk while the remote session or a tool call remains active.
+A quiet log is not proof that an external agent has stopped. Headless wrappers can stay quiet while the remote session or a tool call remains active.
 
-When an external lane is running:
+When an external lane is launched:
 
-1. Retain the broker agent ID, CLI session ID when available, prompt path, and log path.
-2. Call `agents.wait` with `timeout_ms=900000`; do not use short waits or heartbeat sweeps.
-3. A wait timeout means still running. Keep the same broker and call one more long wait.
-4. Do not read agent transcripts, CLI logs, diffs, or tool history while the broker is active.
-5. Do not send routine status questions to the broker.
+1. Retain the broker ID, prompt path, state directory, log path, result path, and done path.
+2. Wait once for the broker launcher receipt; do not wait for the external CLI through the broker.
+3. After `STARTED` or `ALREADY_RUNNING`, let the broker finish and end model-side monitoring.
+4. Do not read agent transcripts, supervisor state, CLI logs, diffs, `done`, or tool history while the lane runs.
+5. Do not send routine status questions to the broker and do not create a replacement broker.
 6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
-7. On terminal state, read the broker's bounded final report once, then inspect the actual diff.
+7. Resume only when the user returns or a real completion event is available. Read state and result once, then inspect the actual diff.
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
 ### Visible Logs
 
-Keep full external output outside the main model context. Return the broker's log path to the user so they can watch it in a terminal without making the main session read it.
+Keep full external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
 
 For external CLI invocations:
 
-- Let the broker redirect full output to a unique log file.
-- Return at most the final 16 KiB of that log after the CLI exits.
-- Keep the log path, prompt path, process ID, and exit status in the final lane report.
+- Let the supervisor redirect full output to a task-keyed log file.
+- Read at most the final 16 KiB result snapshot after the CLI exits.
+- Keep the state directory, log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
 - Inspect the saved log only after a terminal failure when the bounded result does not explain it.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
@@ -239,7 +241,7 @@ If the user names a model, pass the model flag for that CLI. If the user names a
 
 `luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
-The following examples are commands for the broker:
+The following examples are external commands passed through the broker launcher to the supervisor:
 
 ```bash
 # User specified a model for write-producing work.
@@ -268,13 +270,13 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Spawn one lightweight broker sub-agent with the lane metadata and paths.
-4. Retain only the broker agent ID and log path in the main context.
-5. Wait once with `timeout_ms=900000`.
-6. If that wait times out, wait again without reading logs or asking for status.
-7. On terminal state, read the broker's bounded report once.
-8. Read a bounded log tail only for an unexplained failure.
-9. Inspect the actual diff.
+3. Compute the supervisor task key and state directory.
+4. Spawn one Terra Low broker launcher with the exact supervisor start command and `fork_turns="none"`.
+5. Wait once for `STARTED`, `ALREADY_RUNNING`, or a launch error.
+6. Retain only the state directory and artifact paths after the broker finishes.
+7. End the current turn without polling while the lane runs.
+8. On a completion event or explicit user request, read the small state snapshot once.
+9. When terminal, read the bounded result once and inspect the actual diff.
 10. Run verification yourself.
 11. Report status, changed files, verification output, log path, and any gaps.
 
