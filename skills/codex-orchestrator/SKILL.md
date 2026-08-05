@@ -218,16 +218,18 @@ If the user assigned implementation to a named external agent, that agent remain
 
 ### Visible Logs
 
-Keep full external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
+Keep external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
 
 For external CLI invocations:
 
-- Let the supervisor redirect full output to a task-keyed log file.
+- Let the supervisor write a task-keyed log file; Luna uses the compact event form described below.
 - Read at most the final 16 KiB result snapshot after the CLI exits.
 - Keep the state directory, log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
 - Inspect the saved log only after a terminal failure when the bounded result does not explain it.
 - Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
+
+Luna log handling is different only at the output layer. Always run Luna through `scripts/codex-event-log.sh`, pass Codex `--json --output-last-message "$FINAL"`, and pass supervisor `--result-source "$FINAL"` exactly as shown in [references/broker-lanes.md](references/broker-lanes.md). Keep Luna on `gpt-5.6-luna`, `max`, Fast, and the requested permission mode with unrestricted tool count. The compact `lane.log` keeps command names, lifecycle, errors, agent messages, and usage. The complete JSONL stream is compressed after exit for diagnosis. Do not apply this wrapper to Claude.
 
 Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one broker lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
 
@@ -240,6 +242,8 @@ Antigravity note: `agy --print` consumes the token immediately after `--print` a
 If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
 
 `luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
+
+The Luna command examples below show producer arguments. The broker must still add the JSON event wrapper, final-message path, raw-event path, and supervisor result source from [references/broker-lanes.md](references/broker-lanes.md).
 
 The following examples are external commands passed through the broker launcher to the supervisor:
 

@@ -110,7 +110,7 @@ Antigravity broker launcher -> shell supervisor -> agy / Gemini
 Luna broker launcher -> shell supervisor -> codex / GPT-5.6 Luna Max / Fast
 ```
 
-The Broker runs one supervisor start command, reports `STARTED`, and exits immediately. The shell supervisor waits for the external process, saves full output, writes a small state snapshot and completion marker, and stores at most the final 16 KiB in `result.txt`. It uses no model and consumes no Codex tokens. The main Codex session still writes the spec, judges completed results, and runs verification.
+The Broker runs one supervisor start command, reports `STARTED`, and exits immediately. The shell supervisor waits for the external process, writes a small state snapshot and completion marker, and stores at most the final 16 KiB in `result.txt`. It uses no model and consumes no Codex tokens. The main Codex session still writes the spec, judges completed results, and runs verification.
 
 Broker and producer settings are intentionally separate:
 
@@ -160,6 +160,8 @@ codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_ti
 
 For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
 
+Luna keeps its full model behavior: GPT-5.6 Luna, `max` reasoning, Fast service, requested permissions, and unrestricted tool calls. Only output capture changes. Codex runs with JSON events and `--output-last-message`; `lane.log` records command lifecycle, errors, agent messages, and usage without successful command output. The full JSONL event stream is available while running and compressed after completion. Claude output behavior is unchanged.
+
 ## Broker Launcher Configuration
 
 Every external lane gets a short-lived Terra Low broker launcher. Configure `multi_agent_v2` so broker cards remain visible and launch waiting can use one native tool call:
@@ -199,7 +201,7 @@ For Antigravity:
 agy models
 ```
 
-For external lanes, use the supervisor's `lane.log`. The user may watch that file outside the main model context. Codex should not read or summarize routine output; after completion it reads the bounded `result.txt` once.
+For external lanes, use the supervisor's `lane.log`. The user may watch that file outside the main model context. Codex should not read or summarize routine output; after completion it reads the bounded `result.txt` once. Luna's compact log is paired with `luna-events.jsonl` while running and `luna-events.jsonl.gz` after exit for complete diagnosis.
 
 For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Use `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 

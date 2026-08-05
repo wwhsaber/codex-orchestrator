@@ -83,13 +83,22 @@ Antigravity:
 Luna:
 
 ```bash
+EVENT_LOG="$SKILL_DIR/scripts/codex-event-log.sh"
+FINAL="$STATE_DIR/luna-final.txt"
+RAW="$STATE_DIR/luna-events.jsonl"
+
 "$SUPERVISOR" start \
-  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" -- \
-  codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
+  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" \
+  --result-source "$FINAL" -- \
+  "$EVENT_LOG" --raw "$RAW" -- \
+  codex exec --json --output-last-message "$FINAL" \
+  --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
   -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
 ```
 
-For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Add each CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
+For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Do not change Luna's model, `max` reasoning, Fast service, permissions, or tool access for log-size control. `lane.log` retains command lifecycle, errors, agent messages, and usage without successful command output. While running, the complete JSONL stream is at `luna-events.jsonl`; after exit it is compressed to `luna-events.jsonl.gz`. The exact final message is copied through `luna-final.txt` into `result.txt`.
+
+Add each other CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
 
 ## After Launch
 
@@ -117,4 +126,4 @@ When state is `exited` or `failed`, read the bounded result once:
 "$SUPERVISOR" result --state-dir "$STATE_DIR"
 ```
 
-`result.txt` contains at most the final 16 KiB of output. `lane.log` retains full output for targeted failure diagnosis. After completion, inspect the actual diff and run verification in the main session.
+`result.txt` contains at most the final 16 KiB of output. Grok, Claude, and Antigravity keep their normal full `lane.log`. Luna keeps a compact `lane.log`, its exact final message in `result.txt`, and its compressed raw event stream beside them for targeted diagnosis. After completion, inspect the actual diff and run verification in the main session.

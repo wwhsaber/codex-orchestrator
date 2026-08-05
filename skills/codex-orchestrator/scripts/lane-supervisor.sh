@@ -7,7 +7,7 @@ usage() {
   printf '%s\n' \
     'Usage:' \
     '  lane-supervisor.sh key --lane NAME --cwd DIR --spec FILE' \
-    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--stdin FILE] -- COMMAND [ARG...]' \
+    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
     '  lane-supervisor.sh status --state-dir DIR' \
     '  lane-supervisor.sh result --state-dir DIR'
 }
@@ -37,6 +37,7 @@ write_state() {
     printf 'log=%s\n' "$log_file"
     printf 'supervisor_log=%s\n' "$supervisor_log_file"
     printf 'result=%s\n' "$result_file"
+    printf 'result_source=%s\n' "$result_source_file"
     printf 'done=%s\n' "$done_file"
     printf 'exit_code=%s\n' "$exit_code"
     printf 'log_bytes=%s\n' "$log_bytes"
@@ -115,6 +116,7 @@ command_start() {
   spec_file=
   state_dir=
   stdin_file=
+  result_source_file=
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -141,6 +143,11 @@ command_start() {
       --stdin)
         require_value "$1" "${2-}"
         stdin_file=$2
+        shift 2
+        ;;
+      --result-source)
+        require_value "$1" "${2-}"
+        result_source_file=$2
         shift 2
         ;;
       --)
@@ -214,6 +221,10 @@ command_start() {
   : > "$log_file"
   : > "$supervisor_log_file"
   : > "$result_file"
+  if [ -n "$result_source_file" ]; then
+    mkdir -p "$(dirname "$result_source_file")"
+    : > "$result_source_file"
+  fi
   rm -f "$done_file" "$launcher_pid_file"
   write_state
 
@@ -230,6 +241,7 @@ command_start() {
       --spec "$spec_file" \
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
+      --result-source "$result_source_file" \
       --started-at "$started_at" \
       --launch-label "$launch_label" \
       -- "$@"
@@ -262,6 +274,7 @@ command_start() {
       --spec "$spec_file" \
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
+      --result-source "$result_source_file" \
       --started-at "$started_at" \
       --launch-label "" \
       -- "$@" </dev/null >"$supervisor_log_file" 2>&1 &
@@ -281,6 +294,7 @@ command_run() {
   spec_file=
   state_dir=
   stdin_file=
+  result_source_file=
   started_at=
   launch_label=
 
@@ -291,6 +305,7 @@ command_run() {
       --spec) spec_file=$2; shift 2 ;;
       --state-dir) state_dir=$2; shift 2 ;;
       --stdin) stdin_file=$2; shift 2 ;;
+      --result-source) result_source_file=$2; shift 2 ;;
       --started-at) started_at=$2; shift 2 ;;
       --launch-label) launch_label=$2; shift 2 ;;
       --) shift; break ;;
@@ -330,11 +345,16 @@ command_run() {
   set -e
 
   log_bytes=$(wc -c < "$log_file" | tr -d ' ')
-  if [ "$log_bytes" -gt "$result_limit_bytes" ]; then
-    tail -c "$result_limit_bytes" "$log_file" > "$result_file"
+  selected_result_file=$log_file
+  if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
+    selected_result_file=$result_source_file
+  fi
+  selected_result_bytes=$(wc -c < "$selected_result_file" | tr -d ' ')
+  if [ "$selected_result_bytes" -gt "$result_limit_bytes" ]; then
+    tail -c "$result_limit_bytes" "$selected_result_file" > "$result_file"
     result_truncated=true
   else
-    cp "$log_file" "$result_file"
+    cp "$selected_result_file" "$result_file"
     result_truncated=false
   fi
 
