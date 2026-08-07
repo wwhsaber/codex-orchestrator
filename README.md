@@ -98,6 +98,7 @@ Restart Codex after installing or updating the plugin.
 - Starts each external CLI lane directly through a non-model supervisor by default.
 - Keeps Broker sub-agents optional for users who explicitly want visible launcher cards.
 - Moves process waiting and logging to the supervisor so idle lanes consume no Codex tokens.
+- Caps every delegated spec at 16 KiB and prevents Codex sub-agents from inheriting the parent conversation.
 - Requires final verification from the main session before calling work done.
 
 ## External CLI Mode
@@ -123,6 +124,12 @@ Luna producer: GPT-5.6 Luna Max, Fast service
 The shell waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
 
 A Terra Low Broker is available only as an explicit UI mode. When requested, it runs the same `start` command once and exits after the receipt so a launcher card appears in Codex. It is not required for external execution and is not used by default.
+
+## Delegated Context Budget
+
+Delegated specs should normally be 4-8 KiB and cannot exceed 16 KiB. The supervisor rejects oversized specs in `check-spec`, `key`, and `start`. Specs contain the objective, exact workspace paths, interfaces, constraints, and verification command; they do not contain full conversation history, logs, diffs, or large source blocks.
+
+Codex worker and explorer sub-agents always use `fork_turns="none"` with only the validated spec. External CLI lanes also receive only that spec and inspect referenced workspace files as needed.
 
 ## Model Selection
 

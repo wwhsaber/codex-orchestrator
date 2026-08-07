@@ -24,6 +24,14 @@ The main session computes and passes:
 - Exact supervisor start command.
 - Read-only or write-producing mode.
 
+The spec should normally be 4-8 KiB and must not exceed 16 KiB. Validate it before computing the task key:
+
+```bash
+"$SUPERVISOR" check-spec --spec "$SPEC"
+```
+
+The `key` and `start` commands repeat this check. Replace copied conversation, logs, diffs, and source blocks with precise workspace paths and search anchors.
+
 ## State Directory
 
 Before starting the lane, the main session computes the stable task key and state directory:

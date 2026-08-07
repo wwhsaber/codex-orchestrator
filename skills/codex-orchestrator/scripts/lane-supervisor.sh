@@ -2,10 +2,12 @@
 set -eu
 
 result_limit_bytes=16384
+spec_limit_bytes=16384
 
 usage() {
   printf '%s\n' \
     'Usage:' \
+    '  lane-supervisor.sh check-spec --spec FILE' \
     '  lane-supervisor.sh key --lane NAME --cwd DIR --spec FILE' \
     '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
     '  lane-supervisor.sh await --state-dir DIR' \
@@ -57,6 +59,32 @@ require_value() {
   fi
 }
 
+check_spec_size() {
+  checked_spec_file=$1
+  spec_bytes=$(wc -c < "$checked_spec_file" | tr -d ' ')
+  if [ "$spec_bytes" -gt "$spec_limit_bytes" ]; then
+    printf 'Spec exceeds %s-byte limit: bytes=%s path=%s\n' \
+      "$spec_limit_bytes" "$spec_bytes" "$checked_spec_file" >&2
+    exit 2
+  fi
+}
+
+command_check_spec() {
+  shift
+  if [ "${1-}" != "--spec" ] || [ -z "${2-}" ] || [ "$#" -ne 2 ]; then
+    usage >&2
+    exit 2
+  fi
+  spec_file=$2
+  if [ ! -f "$spec_file" ]; then
+    printf 'Spec file not found: %s\n' "$spec_file" >&2
+    exit 2
+  fi
+  check_spec_size "$spec_file"
+  printf 'SPEC_OK bytes=%s limit=%s path=%s\n' \
+    "$spec_bytes" "$spec_limit_bytes" "$spec_file"
+}
+
 parse_common() {
   lane_name=
   lane_cwd=
@@ -100,6 +128,7 @@ command_key() {
     printf 'Spec file not found: %s\n' "$spec_file" >&2
     exit 2
   fi
+  check_spec_size "$spec_file"
 
   spec_sum=$(cksum < "$spec_file" | awk '{ print $1 "-" $2 }')
   {
@@ -180,6 +209,7 @@ command_start() {
     printf 'Spec file not found: %s\n' "$spec_file" >&2
     exit 2
   fi
+  check_spec_size "$spec_file"
   if [ -n "$stdin_file" ] && [ ! -f "$stdin_file" ]; then
     printf 'Stdin file not found: %s\n' "$stdin_file" >&2
     exit 2
@@ -466,6 +496,7 @@ command_result() {
 }
 
 case "${1-}" in
+  check-spec) command_check_spec "$@" ;;
   key) command_key "$@" ;;
   start) command_start "$@" ;;
   await) command_await "$@" ;;

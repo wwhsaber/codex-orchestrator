@@ -39,6 +39,18 @@ Every delegated task must include all five parts. The worker should not need pri
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
+## Context Budget
+
+Keep each delegated spec between 4 KiB and 8 KiB when practical. The hard limit is 16 KiB measured as UTF-8 bytes. Never paste parent conversation history, full logs, complete diffs, generated files, or large source blocks into a delegated prompt. Pass exact file paths, symbols, line anchors, and `rg` patterns so the producer reads only what it needs from the workspace.
+
+Write every external or Codex sub-agent spec to a temporary file and validate it before launch:
+
+```bash
+"$SKILL_DIR/scripts/lane-supervisor.sh" check-spec --spec "$SPEC"
+```
+
+If the file exceeds 16 KiB, split the task or replace copied material with workspace paths. Do not raise the limit. The supervisor also enforces the limit in `key` and `start`, so oversized external prompts cannot launch.
+
 ## External Lane Launch Mode
 
 Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. By default, the main session runs `scripts/lane-supervisor.sh start` directly. The supervisor detaches the Grok, Claude, Antigravity, Luna, or Codex CLI process and immediately returns `STARTED` or `ALREADY_RUNNING`. It then owns process I/O, state, logs, result capture, and the completion marker without using a model.
@@ -129,6 +141,8 @@ When spawning a worker, include:
 - A reminder that other edits may exist and must not be reverted.
 - A request to edit files directly in the worker workspace and list changed paths.
 - The exact verification command to run, or a precise reason if no automated command exists.
+
+Spawn every worker and explorer with `fork_turns="none"`. Send only the validated five-part spec as the sub-agent message. Never use the default full-history fork for this skill; a self-contained spec and workspace paths replace inherited conversation context.
 
 When spawning an explorer, ask one or more specific questions. Do not ask for broad discovery unless the user requested broad parallel investigation.
 
@@ -274,7 +288,7 @@ Use `codex exec` only when the user explicitly asks for an independent Codex CLI
 
 For external CLI work:
 
-1. Write the five-part spec to a unique temporary prompt file.
+1. Write the five-part spec to a unique temporary prompt file and run `check-spec`.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Compute the supervisor task key and state directory.
 4. Run the exact supervisor start command and `await` in one main-session shell invocation.
