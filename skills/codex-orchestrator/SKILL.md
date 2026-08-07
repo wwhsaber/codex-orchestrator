@@ -20,9 +20,9 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For every external CLI lane, spawn one lightweight one-shot broker launcher.
+4. For every external CLI lane, use one main-session shell invocation that runs the bundled supervisor `start` command and then enters `await`.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
-6. After launcher receipts arrive, enter one silent supervisor `await` command without model-side polling.
+6. Keep the launch receipt inside that shell invocation so the main model resumes only after `await` returns.
 7. When `await` returns terminal state and result, review changes before integrating them.
 8. Run the verification command yourself.
 9. Report only what the diff and verification evidence support.
@@ -39,15 +39,15 @@ Every delegated task must include all five parts. The worker should not need pri
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
-## Broker Launcher Mode
+## External Lane Launch Mode
 
-Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. Every Grok, Claude, Antigravity, Luna, and Codex CLI lane gets one lightweight Codex broker launcher. "Broker" is a one-shot launcher role, not the process supervisor. Keep it one-to-one: one Grok broker launches only Grok, one Claude broker launches only Claude, one Gemini broker launches only Antigravity `agy`, and one Luna broker launches only its Codex CLI process.
+Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. By default, the main session runs `scripts/lane-supervisor.sh start` directly. The supervisor detaches the Grok, Claude, Antigravity, Luna, or Codex CLI process and immediately returns `STARTED` or `ALREADY_RUNNING`. It then owns process I/O, state, logs, result capture, and the completion marker without using a model.
 
-The broker starts `scripts/lane-supervisor.sh` and exits immediately after receiving `STARTED` or `ALREADY_RUNNING`. The non-model supervisor owns process I/O, waiting, state, logs, and the completion marker. The main session owns the spec, routing, diff review, and verification.
+Do not spawn a Broker merely to run the supervisor command. Direct launch avoids an extra Codex inference, sub-agent scheduling, and receipt handoff. The main session still owns the spec, routing, silent wait, diff review, and verification.
 
-Spawn every broker with `fork_turns="none"`, `model="gpt-5.6-terra"`, `reasoning_effort="low"`, and the default service tier. Do not enable Fast for the broker. The actual external producer keeps its own model, reasoning, and service settings.
+Use an optional Broker only when the user explicitly asks for a visible Broker sub-agent card or isolated launcher. "Broker" is a one-shot launcher role, not the process supervisor. Keep it one-to-one and spawn it with `fork_turns="none"`, `model="gpt-5.6-terra"`, `reasoning_effort="low"`, and the default service tier. Do not enable Fast for the Broker.
 
-Required local configuration:
+Optional Broker configuration:
 
 ```toml
 [agents]
@@ -64,9 +64,9 @@ default_wait_timeout_ms = 30000
 max_wait_timeout_ms = 900000
 ```
 
-The 30-second value is the general default only. A broker launcher should complete quickly, but this skill may call `agents.wait` once with `timeout_ms=900000` so waiting itself does not create repeated model turns.
+The 30-second value is the general default only. When optional Brokers are used, call `agents.wait` once with `timeout_ms=900000` for their launch receipts.
 
-Broker duties:
+Optional Broker duties:
 
 - Receive only lane metadata, cwd, spec path, state directory, exact supervisor start command, and expected mode.
 - Run the supplied supervisor start command exactly once.
@@ -84,11 +84,11 @@ ALREADY_RUNNING lane=<name> pid=<pid> state=<path> log=<path> result=<path>
 FAILED_TO_START lane=<name> reason=<short reason>
 ```
 
-Give the broker file paths, not parent history or copied spec contents. Set `fork_turns="none"` on every broker spawn. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read any lane artifacts after launch, do not wait for completion, and finish immediately after the launch receipt.
+Give an optional Broker file paths, not parent history or copied spec contents. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read any lane artifacts after launch, do not wait for completion, and finish immediately after the launch receipt.
 
-The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after supervisor `await` returns, inspects diffs, and runs verification. A completed Broker card is launch evidence only; it is not external-task completion evidence.
+The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after supervisor `await` returns, inspects diffs, and runs verification. When optional Broker mode is active, a completed Broker card is launch evidence only; it is not external-task completion evidence.
 
-After spawning brokers, call `agents.wait` once for their launch receipts. Once all receipts arrive, report the supervisor paths and invoke `scripts/lane-supervisor.sh await --state-dir <dir>` once. The command blocks without model output and returns terminal state plus bounded result. Do not poll the broker, supervisor state, `done` marker, logs, diffs, or session files. Do not say that you are continuously monitoring. If the shell tool yields, continue only the same shell session with the longest supported wait and no commentary. For multiple lanes, await them inside one blocking shell invocation.
+Run direct `start` and `await` inside one shell invocation. Capture the successful launch receipt inside the shell instead of returning it to the main model; if launch fails, return the error immediately. The `await` command blocks without model output and returns terminal state plus bounded result. Do not poll supervisor state, `done`, logs, diffs, or session files. Do not say that you are continuously monitoring. If the shell tool yields, continue only the same shell session with the longest supported wait and no commentary. For multiple lanes, start every lane and await all of them inside one blocking shell invocation. If optional Brokers were requested, wait once for their launch receipts before the same `await` step.
 
 ## Lane Selection
 
@@ -140,7 +140,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-Use Broker Launcher mode for every external lane, regardless of expected duration.
+Use direct supervisor launch for every external lane, regardless of expected duration. Use optional Broker mode only when the user explicitly asks for it.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -206,11 +206,11 @@ A quiet log is not proof that an external agent has stopped. Headless wrappers c
 
 When an external lane is launched:
 
-1. Retain the broker ID, prompt path, state directory, log path, result path, and done path.
-2. Wait once for the broker launcher receipt; do not wait for the external CLI through the broker.
-3. After `STARTED` or `ALREADY_RUNNING`, let the broker finish and start one supervisor `await` in the main session.
+1. Retain the prompt path, state directory, log path, result path, and done path.
+2. In one shell invocation, run supervisor `start`, retain `STARTED` or `ALREADY_RUNNING` inside the shell, and continue directly into `await`.
+3. Let only a launch error or the final `await` result return to the main model.
 4. Do not read agent transcripts, supervisor state, CLI logs, diffs, `done`, or tool history while the lane runs.
-5. Do not send routine status questions to the broker and do not create a replacement broker.
+5. Do not start a duplicate lane or issue routine status commands.
 6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
 7. The shell wait emits nothing while running. When it returns terminal state and result, inspect the actual diff.
 
@@ -245,9 +245,9 @@ If the user names a model, pass the model flag for that CLI. If the user names a
 
 `luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
-The Luna command examples below show producer arguments. The broker must still add the JSON event wrapper, final-message path, raw-event path, and supervisor result source from [references/broker-lanes.md](references/broker-lanes.md).
+The Luna command examples below show producer arguments. The supervisor command must still add the JSON event wrapper, final-message path, raw-event path, and result source from [references/broker-lanes.md](references/broker-lanes.md).
 
-The following examples are external commands passed through the broker launcher to the supervisor:
+The following examples are external commands passed directly to the supervisor:
 
 ```bash
 # User specified a model for write-producing work.
@@ -277,14 +277,13 @@ For external CLI work:
 1. Write the five-part spec to a unique temporary prompt file.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Compute the supervisor task key and state directory.
-4. Spawn one Terra Low broker launcher with the exact supervisor start command and `fork_turns="none"`.
-5. Wait once for `STARTED`, `ALREADY_RUNNING`, or a launch error.
-6. Retain only the state directory and artifact paths after the broker finishes.
-7. Invoke one silent `lane-supervisor.sh await` command; for multiple lanes, put all awaits in the same shell invocation.
-8. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.
-9. When `await` returns, inspect the returned terminal state, bounded result, and actual diff.
-10. Run verification yourself.
-11. Report status, changed files, verification output, log path, and any gaps.
+4. Run the exact supervisor start command and `await` in one main-session shell invocation.
+5. Keep `STARTED` or `ALREADY_RUNNING` inside the shell; return a launch error immediately.
+6. For multiple lanes, start all of them before awaiting them in that same shell invocation.
+7. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.
+8. When `await` returns, inspect the returned terminal state, bounded result, actual diff, and retained artifact paths.
+9. Run verification yourself.
+10. Report status, changed files, verification output, log path, and any gaps.
 
 Use broad permissions only for write-producing lanes. Keep read-only reviews, advisor passes, and preflight checks on read-only or default modes.
 
