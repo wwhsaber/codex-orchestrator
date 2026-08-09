@@ -1,0 +1,23 @@
+[package]
+name = "codex-orchestrator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Terminal dashboard for Codex Orchestrator external agent lanes"
+repository = "https://github.com/wwhsaber/codex-orchestrator"
+
+[dependencies]
+anyhow = "1.0"
+chrono = "0.4"
+clap = { version = "4.6", features = ["derive"] }
+crossterm = "0.29"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29"] }
+strip-ansi-escapes = "0.2"
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

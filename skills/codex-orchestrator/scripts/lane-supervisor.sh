@@ -9,9 +9,10 @@ usage() {
     'Usage:' \
     '  lane-supervisor.sh check-spec --spec FILE' \
     '  lane-supervisor.sh key --lane NAME --cwd DIR --spec FILE' \
-    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
+    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--title TEXT] [--model-label TEXT] [--mode read|write] [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
     '  lane-supervisor.sh await --state-dir DIR' \
     '  lane-supervisor.sh status --state-dir DIR' \
+    '  lane-supervisor.sh stop --state-dir DIR' \
     '  lane-supervisor.sh result --state-dir DIR'
 }
 
@@ -28,11 +29,16 @@ read_field() {
 write_state() {
   state_temp="${state_file}.tmp.$$"
   {
-    printf 'version=1\n'
+    printf 'version=2\n'
+    printf 'task_id=%s\n' "$task_id"
+    printf 'title=%s\n' "$task_title"
     printf 'state=%s\n' "$lane_state"
     printf 'lane=%s\n' "$lane_name"
+    printf 'model=%s\n' "$model_label"
+    printf 'mode=%s\n' "$lane_mode"
     printf 'pid=%s\n' "$lane_pid"
     printf 'launch_label=%s\n' "$launch_label"
+    printf 'controller=%s\n' "$controller_path"
     printf 'started_at=%s\n' "$started_at"
     printf 'updated_at=%s\n' "$(utc_now)"
     printf 'cwd=%s\n' "$lane_cwd"
@@ -57,6 +63,10 @@ require_value() {
     printf 'Missing value for %s\n' "$option_name" >&2
     exit 2
   fi
+}
+
+single_line() {
+  printf '%s' "$1" | tr '\r\n' '  '
 }
 
 check_spec_size() {
@@ -147,6 +157,9 @@ command_start() {
   state_dir=
   stdin_file=
   result_source_file=
+  task_title=
+  model_label=
+  lane_mode=
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -168,6 +181,21 @@ command_start() {
       --state-dir)
         require_value "$1" "${2-}"
         state_dir=$2
+        shift 2
+        ;;
+      --title)
+        require_value "$1" "${2-}"
+        task_title=$(single_line "$2")
+        shift 2
+        ;;
+      --model-label)
+        require_value "$1" "${2-}"
+        model_label=$(single_line "$2")
+        shift 2
+        ;;
+      --mode)
+        require_value "$1" "${2-}"
+        lane_mode=$2
         shift 2
         ;;
       --stdin)
@@ -201,6 +229,13 @@ command_start() {
       exit 2
       ;;
   esac
+  case "$lane_mode" in
+    ''|read|write) ;;
+    *)
+      printf 'Mode must be read or write\n' >&2
+      exit 2
+      ;;
+  esac
   if [ ! -d "$lane_cwd" ]; then
     printf 'Working directory not found: %s\n' "$lane_cwd" >&2
     exit 2
@@ -222,6 +257,13 @@ command_start() {
   result_file="$state_dir/result.txt"
   done_file="$state_dir/done"
   launcher_pid_file="$state_dir/launcher.pid"
+  stop_marker_file="$state_dir/stop-requested"
+  task_id=$(basename "$state_dir")
+
+  case "$0" in
+    /*) controller_path=$0 ;;
+    *) controller_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0") ;;
+  esac
 
   if [ -f "$state_file" ]; then
     existing_state=$(read_field state "$state_file")
@@ -256,13 +298,10 @@ command_start() {
     mkdir -p "$(dirname "$result_source_file")"
     : > "$result_source_file"
   fi
-  rm -f "$done_file" "$launcher_pid_file"
+  rm -f "$done_file" "$launcher_pid_file" "$stop_marker_file"
   write_state
 
-  case "$0" in
-    /*) self_path=$0 ;;
-    *) self_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0") ;;
-  esac
+  self_path=$controller_path
 
   if [ -n "$launch_label" ]; then
     set +e
@@ -273,6 +312,9 @@ command_start() {
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
       --result-source "$result_source_file" \
+      --title "$task_title" \
+      --model-label "$model_label" \
+      --mode "$lane_mode" \
       --started-at "$started_at" \
       --launch-label "$launch_label" \
       -- "$@"
@@ -306,6 +348,9 @@ command_start() {
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
       --result-source "$result_source_file" \
+      --title "$task_title" \
+      --model-label "$model_label" \
+      --mode "$lane_mode" \
       --started-at "$started_at" \
       --launch-label "" \
       -- "$@" </dev/null >"$supervisor_log_file" 2>&1 &
@@ -328,6 +373,9 @@ command_run() {
   result_source_file=
   started_at=
   launch_label=
+  task_title=
+  model_label=
+  lane_mode=
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -337,6 +385,9 @@ command_run() {
       --state-dir) state_dir=$2; shift 2 ;;
       --stdin) stdin_file=$2; shift 2 ;;
       --result-source) result_source_file=$2; shift 2 ;;
+      --title) task_title=$2; shift 2 ;;
+      --model-label) model_label=$2; shift 2 ;;
+      --mode) lane_mode=$2; shift 2 ;;
       --started-at) started_at=$2; shift 2 ;;
       --launch-label) launch_label=$2; shift 2 ;;
       --) shift; break ;;
@@ -349,6 +400,12 @@ command_run() {
   supervisor_log_file="$state_dir/supervisor.log"
   result_file="$state_dir/result.txt"
   done_file="$state_dir/done"
+  stop_marker_file="$state_dir/stop-requested"
+  task_id=$(basename "$state_dir")
+  case "$0" in
+    /*) controller_path=$0 ;;
+    *) controller_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0") ;;
+  esac
   lane_state=running
   lane_pid=$$
   exit_code=
@@ -390,7 +447,11 @@ command_run() {
   fi
 
   exit_code=$command_exit
-  if [ "$command_exit" -eq 0 ]; then
+  if [ -f "$stop_marker_file" ]; then
+    lane_state=cancelled
+    exit_code=130
+    state_message=user_stopped
+  elif [ "$command_exit" -eq 0 ]; then
     lane_state=exited
     state_message=completed
   else
@@ -473,6 +534,109 @@ command_await() {
   fi
 }
 
+stop_tree() {
+  stop_pid=$1
+  stop_signal=$2
+  for child_pid in $(pgrep -P "$stop_pid" 2>/dev/null || true); do
+    stop_tree "$child_pid" "$stop_signal"
+  done
+  kill "-$stop_signal" "$stop_pid" 2>/dev/null || true
+}
+
+command_stop() {
+  shift
+  if [ "${1-}" != "--state-dir" ] || [ -z "${2-}" ] || [ "$#" -ne 2 ]; then
+    usage >&2
+    exit 2
+  fi
+
+  state_dir=$2
+  state_file="$state_dir/state"
+  launcher_pid_file="$state_dir/launcher.pid"
+  stop_marker_file="$state_dir/stop-requested"
+  if [ ! -f "$state_file" ]; then
+    printf 'MISSING state=%s\n' "$state_file" >&2
+    exit 1
+  fi
+
+  lane_state=$(read_field state "$state_file")
+  case "$lane_state" in
+    exited|failed|cancelled)
+      printf 'ALREADY_TERMINAL state=%s path=%s\n' "$lane_state" "$state_file"
+      exit 0
+      ;;
+  esac
+  if [ -f "$state_dir/done" ]; then
+    terminal_state=$(read_field state "$state_file")
+    printf 'ALREADY_TERMINAL state=%s path=%s\n' "$terminal_state" "$state_file"
+    exit 0
+  fi
+
+  task_id=$(read_field task_id "$state_file")
+  [ -n "$task_id" ] || task_id=$(basename "$state_dir")
+  task_title=$(read_field title "$state_file")
+  lane_name=$(read_field lane "$state_file")
+  model_label=$(read_field model "$state_file")
+  lane_mode=$(read_field mode "$state_file")
+  lane_pid=$(read_field pid "$state_file")
+  launch_label=$(read_field launch_label "$state_file")
+  controller_path=$(read_field controller "$state_file")
+  [ -n "$controller_path" ] || controller_path=$0
+  started_at=$(read_field started_at "$state_file")
+  lane_cwd=$(read_field cwd "$state_file")
+  spec_file=$(read_field spec "$state_file")
+  log_file=$(read_field log "$state_file")
+  supervisor_log_file=$(read_field supervisor_log "$state_file")
+  result_file=$(read_field result "$state_file")
+  result_source_file=$(read_field result_source "$state_file")
+  done_file=$(read_field "done" "$state_file")
+  [ -n "$done_file" ] || done_file="$state_dir/done"
+  : > "$stop_marker_file"
+
+  if [ "$lane_state" = "starting" ] && [ -f "$launcher_pid_file" ]; then
+    lane_pid=$(sed -n '1p' "$launcher_pid_file")
+  fi
+
+  if [ -n "$launch_label" ] && command -v screen >/dev/null 2>&1; then
+    screen -S "$launch_label" -X quit >/dev/null 2>&1 || true
+  elif [ -n "$lane_pid" ] && [ "$lane_pid" -gt 0 ] 2>/dev/null; then
+    stop_tree "$lane_pid" TERM
+  fi
+
+  wait_count=0
+  while [ -n "$lane_pid" ] && [ "$lane_pid" -gt 0 ] 2>/dev/null \
+    && kill -0 "$lane_pid" 2>/dev/null && [ "$wait_count" -lt 20 ]; do
+    sleep 0.1
+    wait_count=$((wait_count + 1))
+  done
+  if [ -n "$lane_pid" ] && [ "$lane_pid" -gt 0 ] 2>/dev/null \
+    && kill -0 "$lane_pid" 2>/dev/null; then
+    stop_tree "$lane_pid" KILL
+  fi
+
+  log_bytes=0
+  result_truncated=false
+  if [ -f "$log_file" ]; then
+    log_bytes=$(wc -c < "$log_file" | tr -d ' ')
+    if [ "$log_bytes" -gt "$result_limit_bytes" ]; then
+      tail -c "$result_limit_bytes" "$log_file" > "$result_file"
+      result_truncated=true
+    else
+      cp "$log_file" "$result_file"
+    fi
+  else
+    : > "$result_file"
+  fi
+
+  lane_state=cancelled
+  exit_code=130
+  state_message=user_stopped
+  write_state
+  : > "$done_file"
+  printf 'STOPPED lane=%s pid=%s state=%s result=%s\n' \
+    "$lane_name" "$lane_pid" "$state_file" "$result_file"
+}
+
 command_result() {
   shift
   if [ "${1-}" != "--state-dir" ] || [ -z "${2-}" ]; then
@@ -487,7 +651,7 @@ command_result() {
   fi
   lane_state=$(read_field state "$state_file")
   case "$lane_state" in
-    exited|failed) cat "$result_file" ;;
+    exited|failed|cancelled) cat "$result_file" ;;
     *)
       printf 'Result is not ready; state=%s\n' "$lane_state" >&2
       exit 1
@@ -501,6 +665,7 @@ case "${1-}" in
   start) command_start "$@" ;;
   await) command_await "$@" ;;
   status) command_status "$@" ;;
+  stop) command_stop "$@" ;;
   result) command_result "$@" ;;
   _run) command_run "$@" ;;
   *) usage >&2; exit 2 ;;

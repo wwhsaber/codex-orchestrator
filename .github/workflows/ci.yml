@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Check Rust formatting
+        run: cargo fmt --check
+      - name: Lint Rust
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test Rust
+        run: cargo test --locked
+      - name: Check shell syntax
+        run: |
+          sh -n skills/codex-orchestrator/scripts/lane-supervisor.sh
+          bash -n skills/codex-orchestrator/scripts/codex-event-log.sh

@@ -6,7 +6,9 @@ Use it for multi-agent orchestration on high-stakes work: architect-led decompos
 
 ## Dependencies
 
-None. The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone.
+The skill and shell supervisor have no additional runtime dependencies. They work with Codex runtime sub-agents (`worker`, `explorer`) alone.
+
+The optional terminal dashboard is a Rust binary. Build it with a current Rust toolchain or install a prebuilt release when one is available.
 
 External CLIs (`grok`, `claude`, `agy`, `codex`) are optional. Use them only when you want a distinct model producer or explicitly ask for that lane.
 
@@ -17,10 +19,18 @@ If you request an external lane that is not installed or authenticated, the skil
 ```text
 codex-orchestrator/
 ├── .codex-plugin/plugin.json
+├── Cargo.toml
+├── src/
+│   ├── app.rs
+│   ├── main.rs
+│   ├── model.rs
+│   └── ui.rs
 ├── skills/
 │   └── codex-orchestrator/
 │       ├── SKILL.md
-│       └── agents/openai.yaml
+│       ├── agents/openai.yaml
+│       ├── references/broker-lanes.md
+│       └── scripts/
 ├── README.md
 └── LICENSE
 ```
@@ -89,6 +99,44 @@ Then add a local marketplace entry at `~/.agents/plugins/marketplace.json`:
 
 Restart Codex after installing or updating the plugin.
 
+## Install The Terminal Dashboard
+
+From the cloned repository:
+
+```bash
+cargo install --path . --locked
+```
+
+Open the dashboard from any terminal:
+
+```bash
+codex-orchestrator
+```
+
+The dashboard reads local supervisor state and logs directly. It does not call a model and does not add content to the main Codex session.
+
+```text
+Up/Down        select a task or scroll output
+Enter / l      open the live log
+r              open the final result
+f / Tab        cycle all, running, and finished filters
+Space          pause or resume log following
+s              stop a running task after confirmation
+Esc            return to the dashboard
+q              quit
+```
+
+For multiple terminal windows, use the task ID shown by `list`:
+
+```bash
+codex-orchestrator list --all
+codex-orchestrator watch <task-id>
+codex-orchestrator result <task-id>
+codex-orchestrator stop <task-id> --yes
+```
+
+Each `watch` process is an independent read-only observer until you explicitly confirm `stop`. Override task discovery with `--state-root PATH` or `CODEX_ORCHESTRATOR_STATE_ROOT`.
+
 ## What It Does
 
 - Keeps the main Codex session as architect.
@@ -98,6 +146,7 @@ Restart Codex after installing or updating the plugin.
 - Starts each external CLI lane directly through a non-model supervisor by default.
 - Keeps Broker sub-agents optional for users who explicitly want visible launcher cards.
 - Moves process waiting and logging to the supervisor so idle lanes consume no Codex tokens.
+- Provides a Rust terminal dashboard for all Lane states, live logs, results, and explicit stopping.
 - Caps every delegated spec at 16 KiB and prevents Codex sub-agents from inheriting the parent conversation.
 - Requires final verification from the main session before calling work done.
 
@@ -122,6 +171,8 @@ Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
 The shell waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
+
+In another terminal, `codex-orchestrator` can display every Lane and follow its output. This user-side observer reads local files only and does not alter the main Agent's silent wait.
 
 A Terra Low Broker is available only as an explicit UI mode. When requested, it runs the same `start` command once and exits after the receipt so a launcher card appears in Codex. It is not required for external execution and is not used by default.
 

@@ -23,6 +23,7 @@ The main session computes and passes:
 - Spec path.
 - Exact supervisor start command.
 - Read-only or write-producing mode.
+- A concise task title and accurate model label for the terminal dashboard.
 
 The spec should normally be 4-8 KiB and must not exceed 16 KiB. Validate it before computing the task key:
 
@@ -46,11 +47,14 @@ The task key combines lane, working directory, and spec content. Starting the sa
 
 ## Start Commands
 
+Always pass `--title`, `--model-label`, and `--mode` to `start`. Use the actual selected model in the label, and set mode to `read` or `write`. The examples below are read-only:
+
 Grok:
 
 ```bash
 "$SUPERVISOR" start \
-  --lane grok --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" -- \
+  --lane grok --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --title "$TITLE" --model-label "grok default" --mode read -- \
   env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false \
   grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$CWD"
 ```
@@ -59,7 +63,8 @@ Claude:
 
 ```bash
 "$SUPERVISOR" start \
-  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" -- \
+  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" \
+  --title "$TITLE" --model-label "sonnet / high" --mode read -- \
   claude -p --model sonnet --effort high
 ```
 
@@ -67,7 +72,8 @@ Antigravity:
 
 ```bash
 "$SUPERVISOR" start \
-  --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" -- \
+  --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --title "$TITLE" --model-label "gemini-3.6-flash-high" --mode read -- \
   agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
   --print-timeout 15m --model gemini-3.6-flash-high
 ```
@@ -81,7 +87,8 @@ RAW="$STATE_DIR/luna-events.jsonl"
 
 "$SUPERVISOR" start \
   --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" \
-  --result-source "$FINAL" -- \
+  --result-source "$FINAL" --title "$TITLE" \
+  --model-label "gpt-5.6-luna / max / fast" --mode read -- \
   "$EVENT_LOG" --raw "$RAW" -- \
   codex exec --json --output-last-message "$FINAL" \
   --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
@@ -98,7 +105,8 @@ Run `start` and `await` in one shell invocation so a successful launch receipt d
 
 ```bash
 launch_receipt=$("$SUPERVISOR" start \
-  --lane "$LANE" --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" -- \
+  --lane "$LANE" --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --title "$TITLE" --model-label "$MODEL_LABEL" --mode "$MODE" -- \
   COMMAND ARGUMENTS) || exit $?
 "$SUPERVISOR" await --state-dir "$STATE_DIR"
 ```
@@ -115,6 +123,18 @@ Replace `COMMAND ARGUMENTS` with the lane command from the preceding section and
 For multiple lanes, start every lane before the first `await`, then run all required `await` commands inside that same blocking shell invocation so the main model does not wake between lane completions.
 
 The captured `STARTED` receipt proves only that the background lane was launched. It does not claim that the external task finished.
+
+## User Terminal Dashboard
+
+The optional Rust binary discovers every state directory under `${TMPDIR:-/tmp}/codex-orchestrator` and shows all running and finished Lanes without sending logs through a model:
+
+```bash
+codex-orchestrator
+codex-orchestrator list --all
+codex-orchestrator watch <task-id>
+```
+
+Multiple terminals may watch different task IDs concurrently. The TUI reads `state`, `lane.log`, and `result.txt`; it never changes the main session's silent `await`. Its stop action calls the recorded supervisor controller and requires confirmation.
 
 ## Optional Broker Mode
 
@@ -136,6 +156,12 @@ Use `result` separately only when state is already terminal and `await` was not 
 
 ```bash
 "$SUPERVISOR" result --state-dir "$STATE_DIR"
+```
+
+Stop a Lane only on explicit user action:
+
+```bash
+"$SUPERVISOR" stop --state-dir "$STATE_DIR"
 ```
 
 `result.txt` contains at most the final 16 KiB of output. Grok, Claude, and Antigravity keep their normal full `lane.log`. Luna keeps a compact `lane.log`, its exact final message in `result.txt`, and its compressed raw event stream beside them for targeted diagnosis. After completion, inspect the actual diff and run verification in the main session.

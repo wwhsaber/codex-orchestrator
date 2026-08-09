@@ -55,6 +55,8 @@ If the file exceeds 16 KiB, split the task or replace copied material with works
 
 Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. By default, the main session runs `scripts/lane-supervisor.sh start` directly. The supervisor detaches the Grok, Claude, Antigravity, Luna, or Codex CLI process and immediately returns `STARTED` or `ALREADY_RUNNING`. It then owns process I/O, state, logs, result capture, and the completion marker without using a model.
 
+Pass `--title`, `--model-label`, and `--mode read|write` on every supervisor start. These fields power the user-side `codex-orchestrator` Rust dashboard. Keep titles concise and report the actual model and effort in the model label.
+
 Do not spawn a Broker merely to run the supervisor command. Direct launch avoids an extra Codex inference, sub-agent scheduling, and receipt handoff. The main session still owns the spec, routing, silent wait, diff review, and verification.
 
 Use an optional Broker only when the user explicitly asks for a visible Broker sub-agent card or isolated launcher. "Broker" is a one-shot launcher role, not the process supervisor. Keep it one-to-one and spawn it with `fork_turns="none"`, `model="gpt-5.6-terra"`, `reasoning_effort="low"`, and the default service tier. Do not enable Fast for the Broker.
@@ -236,6 +238,8 @@ If the user assigned implementation to a named external agent, that agent remain
 
 Keep external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
 
+When the Rust dashboard is installed, the user may run `codex-orchestrator` to see all Lanes or `codex-orchestrator watch <task-id>` in separate terminal windows. This is a local file observer and does not consume Codex tokens. Do not run the interactive TUI through a model tool call, scrape its screen, or summarize its routine output.
+
 For external CLI invocations:
 
 - Let the supervisor write a task-keyed log file; Luna uses the compact event form described below.
@@ -290,7 +294,7 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file and run `check-spec`.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Compute the supervisor task key and state directory.
+3. Compute the supervisor task key and state directory, plus a concise title, accurate model label, and read/write mode.
 4. Run the exact supervisor start command and `await` in one main-session shell invocation.
 5. Keep `STARTED` or `ALREADY_RUNNING` inside the shell; return a launch error immediately.
 6. For multiple lanes, start all of them before awaiting them in that same shell invocation.
