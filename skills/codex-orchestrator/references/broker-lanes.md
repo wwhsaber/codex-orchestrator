@@ -164,4 +164,8 @@ Stop a Lane only on explicit user action:
 "$SUPERVISOR" stop --state-dir "$STATE_DIR"
 ```
 
-`result.txt` contains at most the final 16 KiB of output. Grok, Claude, and Antigravity keep their normal full `lane.log`. Luna keeps a compact `lane.log`, its exact final message in `result.txt`, and its compressed raw event stream beside them for targeted diagnosis. After completion, inspect the actual diff and run verification in the main session.
+`result.txt` contains at most the final 16 KiB of output. Grok, Claude, and Antigravity keep their normal full `lane.log`. Luna keeps a compact `lane.log`, its exact final message in `result.txt`, and its compressed raw event stream beside them for targeted diagnosis. After completion, inspect the actual diff and run scoped verification in the main session.
+
+## Scoped Verification Commands
+
+Every lane spec must name the narrowest relevant test and format commands for its owned files. External producers must not replace those commands with all tests or a full-repository format check. If the repository tooling has no path-, module-, package-, test-file-, or test-case-level command, return that limitation to the main session and wait for explicit user permission before any broader run.

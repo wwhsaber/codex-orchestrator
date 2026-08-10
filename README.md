@@ -148,7 +148,14 @@ Each `watch` process is an independent read-only observer until you explicitly c
 - Moves process waiting and logging to the supervisor so idle lanes consume no Codex tokens.
 - Provides a Rust terminal dashboard for all Lane states, live logs, results, and explicit stopping.
 - Caps every delegated spec at 16 KiB and prevents Codex sub-agents from inheriting the parent conversation.
+- Limits tests and format checks to the changed scope unless the user explicitly approves a broader run.
 - Requires final verification from the main session before calling work done.
+
+## Scoped Test And Format Checks
+
+The orchestrator defaults to the narrowest useful verification for the current change: an exact test, test file, affected module or package, and changed source paths for formatting. Main-session checks, Codex sub-agents, and external CLI lanes may not run all tests or a full-repository format check unless the user explicitly approves that broader command. When project tooling has no scoped command, the orchestrator asks before proceeding.
+
+This execution rule does not silently rewrite existing repository CI policy. CI workflow scope changes remain an explicit project decision.
 
 ## External CLI Mode
 

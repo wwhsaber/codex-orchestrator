@@ -24,7 +24,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Keep the launch receipt inside that shell invocation so the main model resumes only after `await` returns.
 7. When `await` returns terminal state and result, review changes before integrating them.
-8. Run the verification command yourself.
+8. Run the scoped verification command yourself.
 9. Report only what the diff and verification evidence support.
 
 ## Five-Part Spec
@@ -35,7 +35,7 @@ Every delegated task must include all five parts. The worker should not need pri
 2. Files: exact files or modules the worker may edit or inspect.
 3. Interfaces: signatures, schemas, API shapes, CLI flags, UI behavior, or data contracts that must remain stable.
 4. Constraints: project conventions, ownership boundaries, instructions not to revert unrelated work, and anything explicitly out of scope.
-5. Verification: command or manual check that proves the task works.
+5. Verification: the narrowest command or manual check that proves the task works within the changed scope.
 
 If the spec cannot be written clearly, keep the decision in the main session until the ambiguity is settled.
 
@@ -50,6 +50,20 @@ Write every external or Codex sub-agent spec to a temporary file and validate it
 ```
 
 If the file exceeds 16 KiB, split the task or replace copied material with workspace paths. Do not raise the limit. The supervisor also enforces the limit in `key` and `start`, so oversized external prompts cannot launch.
+
+## Scoped Test And Format Policy
+
+Unless the user explicitly approves broader verification for the current task, do not run a repository-wide test suite, all unit tests, or a repository-wide formatter or format check.
+
+- Determine the verification scope from the task ownership boundary and changed paths.
+- Prefer an exact test, test file, affected module, package, or workspace member over a broader test command.
+- Pass only changed source paths to a formatter or format checker when the tool supports path-level checks.
+- Put the exact scoped commands in every delegated spec. A producer must not broaden them on its own.
+- Apply this policy to the main session, Codex workers, and every external CLI lane.
+- If the project tooling cannot test or format only the affected scope, stop and ask the user for permission before running the broader command.
+- Full tests or full-repository format checks require explicit user permission for that run.
+
+This policy governs interactive and delegated task verification. Existing repository CI remains an independent project policy unless the user explicitly asks to change it.
 
 ## External Lane Launch Mode
 
@@ -142,7 +156,7 @@ When spawning a worker, include:
 - A clear ownership boundary for files or modules.
 - A reminder that other edits may exist and must not be reverted.
 - A request to edit files directly in the worker workspace and list changed paths.
-- The exact verification command to run, or a precise reason if no automated command exists.
+- The exact scoped verification command to run, or a precise reason if no scoped automated command exists.
 
 Spawn every worker and explorer with `fork_turns="none"`. Send only the validated five-part spec as the sub-agent message. Never use the default full-history fork for this skill; a self-contained spec and workspace paths replace inherited conversation context.
 
@@ -300,7 +314,7 @@ For external CLI work:
 6. For multiple lanes, start all of them before awaiting them in that same shell invocation.
 7. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.
 8. When `await` returns, inspect the returned terminal state, bounded result, actual diff, and retained artifact paths.
-9. Run verification yourself.
+9. Run the scoped verification yourself without broadening it unless the user approved that broader command.
 10. Report status, changed files, verification output, log path, and any gaps.
 
 Use broad permissions only for write-producing lanes. Keep read-only reviews, advisor passes, and preflight checks on read-only or default modes.
@@ -330,7 +344,9 @@ Before reporting completion:
 
 - Read `git status` and the relevant diff.
 - Check that changed files match the assigned ownership boundary.
-- Run the verification command yourself.
+- Run the narrowest relevant tests and format checks yourself, limited to the changed scope.
+- Do not run all tests or a full-repository format check without explicit user permission.
+- If no scoped command exists, ask before using a broader command and report the unverified gap until permission is granted.
 - If verification fails, either fix locally if the issue is small and within scope, or send a corrected spec back to the worker.
 - If verification cannot be run, state exactly why and what manual inspection was performed.
 - For an external agent, confirm that the process, session, and active tool state are terminal before treating its final text as completion evidence.
