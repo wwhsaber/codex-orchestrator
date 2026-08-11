@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -5,7 +6,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::TableState;
 
-use crate::model::{Task, discover_tasks, read_task_content, stop_task};
+use crate::model::{Task, discover_tasks, read_task_content, read_task_live_tail, stop_task};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Filter {
@@ -35,6 +36,7 @@ impl Filter {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum View {
     Dashboard,
+    Agents,
     Log,
     Result,
 }
@@ -48,6 +50,7 @@ pub struct App {
     pub follow: bool,
     pub scroll: usize,
     pub lines: Vec<String>,
+    pub agent_lines: HashMap<String, Vec<String>>,
     pub should_quit: bool,
     pub stop_confirmation: bool,
     pub notice: Option<String>,
@@ -71,6 +74,7 @@ impl App {
             follow: true,
             scroll: 0,
             lines: Vec::new(),
+            agent_lines: HashMap::new(),
             should_quit: false,
             stop_confirmation: false,
             notice: None,
@@ -78,6 +82,13 @@ impl App {
             last_refresh: Instant::now() - Duration::from_secs(1),
             focused_task,
         }
+    }
+
+    pub fn agents(root: PathBuf) -> Self {
+        let mut app = Self::new(root, None);
+        app.view = View::Agents;
+        app.filter = Filter::Running;
+        app
     }
 
     pub fn refresh_if_due(&mut self) -> Result<()> {
@@ -90,6 +101,13 @@ impl App {
     pub fn refresh(&mut self) -> Result<()> {
         let previous_id = self.selected_task().map(|task| task.id.clone());
         self.tasks = discover_tasks(&self.root)?;
+        if self.view == View::Agents {
+            self.refresh_agent_lines();
+            self.tick = self.tick.wrapping_add(1);
+            self.last_refresh = Instant::now();
+            return Ok(());
+        }
+
         let visible = self.visible_tasks();
 
         let wanted = self.focused_task.take().or(previous_id);
@@ -134,6 +152,10 @@ impl App {
         self.tasks.iter().filter(|task| task.is_active()).count()
     }
 
+    pub fn active_tasks(&self) -> impl Iterator<Item = &Task> {
+        self.tasks.iter().filter(|task| task.is_active())
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
@@ -148,6 +170,13 @@ impl App {
                     self.notice = Some("Stop cancelled".to_owned());
                 }
                 _ => {}
+            }
+            return Ok(());
+        }
+
+        if self.view == View::Agents {
+            if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                self.should_quit = true;
             }
             return Ok(());
         }
@@ -235,6 +264,17 @@ impl App {
         Ok(())
     }
 
+    fn refresh_agent_lines(&mut self) {
+        let active_tasks: Vec<Task> = self.active_tasks().cloned().collect();
+        let active_ids: HashSet<String> = active_tasks.iter().map(|task| task.id.clone()).collect();
+        self.agent_lines.retain(|id, _| active_ids.contains(id));
+        for task in &active_tasks {
+            let lines = read_task_live_tail(task)
+                .unwrap_or_else(|error| vec![format!("Unable to read lane log: {error:#}")]);
+            self.agent_lines.insert(task.id.clone(), lines);
+        }
+    }
+
     fn confirm_stop(&mut self) -> Result<()> {
         let Some(task) = self.selected_task().cloned() else {
             self.stop_confirmation = false;
@@ -245,5 +285,44 @@ impl App {
         self.stop_confirmation = false;
         self.refresh()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn task(id: &str, state: &str, log: PathBuf) -> Task {
+        Task {
+            id: id.to_owned(),
+            state: state.to_owned(),
+            lane: "test".to_owned(),
+            log,
+            ..Task::default()
+        }
+    }
+
+    #[test]
+    fn agent_lines_add_new_tasks_and_remove_finished_tasks() {
+        let temp = tempfile::tempdir().unwrap();
+        let first_log = temp.path().join("first.log");
+        let second_log = temp.path().join("second.log");
+        fs::write(&first_log, "first output\n").unwrap();
+        fs::write(&second_log, "second output\n").unwrap();
+        let mut app = App::agents(temp.path().to_owned());
+        app.tasks = vec![task("first", "running", first_log.clone())];
+
+        app.refresh_agent_lines();
+        assert!(app.agent_lines.contains_key("first"));
+
+        app.tasks = vec![
+            task("first", "exited", first_log),
+            task("second", "running", second_log),
+        ];
+        app.refresh_agent_lines();
+
+        assert!(!app.agent_lines.contains_key("first"));
+        assert_eq!(app.agent_lines["second"], ["second output"]);
     }
 }

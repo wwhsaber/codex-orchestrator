@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 
 const CONTENT_LIMIT_BYTES: u64 = 512 * 1024;
+const LIVE_TAIL_LIMIT_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct Task {
@@ -139,12 +140,19 @@ pub fn find_task<'a>(tasks: &'a [Task], id: &str) -> Result<&'a Task> {
 
 pub fn read_task_content(task: &Task, result: bool) -> Result<Vec<String>> {
     let path = if result { &task.result } else { &task.log };
+    read_task_path(task, path, CONTENT_LIMIT_BYTES)
+}
+
+pub fn read_task_live_tail(task: &Task) -> Result<Vec<String>> {
+    read_task_path(task, &task.log, LIVE_TAIL_LIMIT_BYTES)
+}
+
+fn read_task_path(task: &Task, path: &Path, limit: u64) -> Result<Vec<String>> {
     if !path.is_file() {
         return Ok(vec![format!("Waiting for {}", path.display())]);
     }
 
-    let bytes =
-        read_tail(path, CONTENT_LIMIT_BYTES).with_context(|| format!("read {}", path.display()))?;
+    let bytes = read_tail(path, limit).with_context(|| format!("read {}", path.display()))?;
     let clean = strip_ansi_escapes::strip(bytes);
     let text = String::from_utf8_lossy(&clean);
     let mut lines: Vec<String> = text.lines().map(ToOwned::to_owned).collect();

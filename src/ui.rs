@@ -9,14 +9,142 @@ use crate::model::Task;
 
 const ACCENT: Color = Color::Cyan;
 const MUTED: Color = Color::DarkGray;
+const AGENT_PANE_MIN_WIDTH: u16 = 38;
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     match app.view {
         View::Dashboard => draw_dashboard(frame, app),
+        View::Agents => draw_agents(frame, app),
         View::Log | View::Result => draw_detail(frame, app),
     }
     if app.stop_confirmation {
         draw_stop_confirmation(frame, app);
+    }
+}
+
+fn draw_agents(frame: &mut Frame<'_>, app: &App) {
+    let areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(4),
+            Constraint::Length(2),
+        ])
+        .split(frame.area());
+    draw_agent_header(frame, areas[0], app);
+
+    let tasks: Vec<&Task> = app.active_tasks().collect();
+    if tasks.is_empty() {
+        let waiting = Paragraph::new("Waiting for running agents...")
+            .style(Style::default().fg(MUTED))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray))
+                    .title(" Live agents "),
+            );
+        frame.render_widget(waiting, areas[1]);
+    } else {
+        let panes = agent_grid_areas(areas[1], tasks.len());
+        for (task, pane) in tasks.into_iter().zip(panes) {
+            draw_agent_pane(frame, pane, app, task);
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            key("q/Esc", "quit"),
+            Span::styled(
+                "  New agents join automatically; finished agents leave automatically",
+                Style::default().fg(MUTED),
+            ),
+        ])),
+        areas[2],
+    );
+}
+
+fn draw_agent_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let spinner = ["|", "/", "-", "\\"][app.tick % 4];
+    let title = Line::from(vec![
+        Span::styled(
+            " LIVE AGENTS ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {spinner} {} running", app.active_count()),
+            Style::default().fg(Color::Green),
+        ),
+    ]);
+    let root = Line::from(vec![
+        Span::styled(" State root  ", Style::default().fg(MUTED)),
+        Span::styled(
+            fit_text(
+                &app.root.display().to_string(),
+                area.width.saturating_sub(14) as usize,
+            ),
+            Style::default().fg(Color::White),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(vec![title, root]), area);
+}
+
+fn draw_agent_pane(frame: &mut Frame<'_>, area: Rect, app: &App, task: &Task) {
+    let title = format!(
+        " {} | {} | {} ",
+        task.lane,
+        fit_text(task.display_title(), 24),
+        task.elapsed_label()
+    );
+    let visible_height = area.height.saturating_sub(2) as usize;
+    let empty = Vec::new();
+    let lines = app.agent_lines.get(&task.id).unwrap_or(&empty);
+    let start = lines.len().saturating_sub(visible_height);
+    let content: Vec<Line<'_>> = lines[start..]
+        .iter()
+        .map(|line| Line::raw(line.as_str()))
+        .collect();
+    let paragraph = Paragraph::new(content)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(agent_color(&task.lane)))
+                .title(title),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+fn agent_grid_areas(area: Rect, count: usize) -> Vec<Rect> {
+    if count == 0 || area.width == 0 || area.height == 0 {
+        return Vec::new();
+    }
+    let max_columns = (area.width / AGENT_PANE_MIN_WIDTH).max(1) as usize;
+    let columns = count.min(max_columns);
+    let rows = count.div_ceil(columns);
+    let row_areas = Layout::vertical(vec![Constraint::Ratio(1, rows as u32); rows]).split(area);
+    let mut panes = Vec::with_capacity(count);
+    for (row_index, row_area) in row_areas.iter().enumerate() {
+        let remaining = count.saturating_sub(row_index * columns);
+        let row_columns = remaining.min(columns);
+        let column_areas =
+            Layout::horizontal(vec![Constraint::Ratio(1, row_columns as u32); row_columns])
+                .split(*row_area);
+        panes.extend(column_areas.iter().copied());
+    }
+    panes
+}
+
+fn agent_color(lane: &str) -> Color {
+    match lane.to_ascii_lowercase().as_str() {
+        "grok" => Color::Green,
+        "claude" => Color::Cyan,
+        "gemini" | "agy" => Color::Magenta,
+        "luna" | "codex" => Color::Yellow,
+        "opencode" => Color::LightBlue,
+        _ => Color::Gray,
     }
 }
 
@@ -403,4 +531,22 @@ fn fit_text(value: &str, width: usize) -> String {
         .rev()
         .collect();
     format!("{start}...{end}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lays_out_agent_panes_horizontally_before_adding_rows() {
+        let panes = agent_grid_areas(Rect::new(0, 0, 120, 40), 5);
+
+        assert_eq!(panes.len(), 5);
+        assert_eq!(panes[0].y, panes[1].y);
+        assert_eq!(panes[1].y, panes[2].y);
+        assert!(panes[0].x < panes[1].x);
+        assert!(panes[1].x < panes[2].x);
+        assert!(panes[3].y > panes[0].y);
+        assert!(panes[3].x < panes[4].x);
+    }
 }

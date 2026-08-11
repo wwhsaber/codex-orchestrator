@@ -34,6 +34,9 @@ struct Cli {
 enum Command {
     /// Open the interactive task dashboard.
     Tui,
+    /// Watch live output from every running agent in an auto-updating pane grid.
+    #[command(visible_aliases = ["watch-all", "live"])]
+    Agents,
     /// Open the TUI focused on one task.
     Watch { task_id: String },
     /// Print known tasks without entering the TUI.
@@ -58,15 +61,16 @@ fn main() -> Result<()> {
     let root = cli.state_root.unwrap_or_else(state_root);
 
     match cli.command {
-        None | Some(Command::Tui) => run_tui(root, None),
-        Some(Command::Watch { task_id }) => run_tui(root, Some(task_id)),
+        None | Some(Command::Tui) => run_tui(App::new(root, None)),
+        Some(Command::Agents) => run_tui(App::agents(root)),
+        Some(Command::Watch { task_id }) => run_tui(App::new(root, Some(task_id))),
         Some(Command::List { all }) => print_tasks(&root, all),
         Some(Command::Result { task_id }) => print_result(&root, &task_id),
         Some(Command::Stop { task_id, yes }) => stop_from_cli(&root, &task_id, yes),
     }
 }
 
-fn run_tui(root: PathBuf, focused_task: Option<String>) -> Result<()> {
+fn run_tui(app: App) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         bail!("the TUI requires an interactive terminal");
     }
@@ -77,7 +81,7 @@ fn run_tui(root: PathBuf, focused_task: Option<String>) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("create terminal")?;
 
-    let result = run_event_loop(&mut terminal, App::new(root, focused_task));
+    let result = run_event_loop(&mut terminal, app);
 
     disable_raw_mode().context("disable terminal raw mode")?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)

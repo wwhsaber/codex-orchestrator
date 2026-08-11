@@ -130,11 +130,12 @@ The optional Rust binary discovers every state directory under `${TMPDIR:-/tmp}/
 
 ```bash
 codex-orchestrator
+codex-orchestrator agents
 codex-orchestrator list --all
 codex-orchestrator watch <task-id>
 ```
 
-Multiple terminals may watch different task IDs concurrently. The TUI reads `state`, `lane.log`, and `result.txt`; it never changes the main session's silent `await`. Its stop action calls the recorded supervisor controller and requires confirmation.
+`codex-orchestrator agents` keeps one live log pane per running Agent. It discovers new lanes automatically, removes panes as lanes finish, and lays panes out horizontally before adding rows. Multiple terminals may also watch different task IDs concurrently. The TUI reads `state`, `lane.log`, and `result.txt`; it never changes the main session's silent `await`. Its stop action calls the recorded supervisor controller and requires confirmation.
 
 ## Optional Broker Mode
 

@@ -111,9 +111,12 @@ Open the dashboard from any terminal:
 
 ```bash
 codex-orchestrator
+codex-orchestrator agents
 ```
 
 The dashboard reads local supervisor state and logs directly. It does not call a model and does not add content to the main Codex session.
+
+`codex-orchestrator agents` opens a live multi-pane view containing only running Agents. New Agents join automatically, and each pane disappears when its Agent reaches a terminal state. Panes are arranged horizontally first and continue on additional rows when the terminal cannot keep every pane readable on one row. The command remains open while no Agents are running so it can pick up future work; press `q` or `Esc` to exit.
 
 If a saved task says `running` but its recorded supervisor process no longer exists or belongs to another process, the dashboard presents it as `INTERRUPTED` and excludes it from the Running filter. The supervisor also writes this terminal state when `status` or `await` observes a missing process, so crashes, forced exits, and machine restarts do not leave a task permanently active.
 
@@ -131,6 +134,7 @@ q              quit
 For multiple terminal windows, use the task ID shown by `list`:
 
 ```bash
+codex-orchestrator agents
 codex-orchestrator list --all
 codex-orchestrator watch <task-id>
 codex-orchestrator result <task-id>
@@ -148,7 +152,7 @@ Each `watch` process is an independent read-only observer until you explicitly c
 - Starts each external CLI lane directly through a non-model supervisor by default.
 - Keeps Broker sub-agents optional for users who explicitly want visible launcher cards.
 - Moves process waiting and logging to the supervisor so idle lanes consume no Codex tokens.
-- Provides a Rust terminal dashboard for all Lane states, live logs, results, and explicit stopping.
+- Provides a Rust terminal dashboard for all Lane states, auto-updating multi-Agent logs, results, and explicit stopping.
 - Caps every delegated spec at 16 KiB and prevents Codex sub-agents from inheriting the parent conversation.
 - Limits tests and format checks to the changed scope unless the user explicitly approves a broader run.
 - Requires final verification from the main session before calling work done.

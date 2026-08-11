@@ -252,7 +252,7 @@ If the user assigned implementation to a named external agent, that agent remain
 
 Keep external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
 
-When the Rust dashboard is installed, the user may run `codex-orchestrator` to see all Lanes or `codex-orchestrator watch <task-id>` in separate terminal windows. This is a local file observer and does not consume Codex tokens. Do not run the interactive TUI through a model tool call, scrape its screen, or summarize its routine output.
+When the Rust dashboard is installed, the user may run `codex-orchestrator` to see all Lanes, `codex-orchestrator agents` for an auto-updating horizontal-first grid of every running Agent, or `codex-orchestrator watch <task-id>` in separate terminal windows. Finished panes leave the Agents view automatically and newly started lanes enter it automatically. These commands are local file observers and do not consume Codex tokens. Do not run the interactive TUI through a model tool call, scrape its screen, or summarize its routine output.
 
 For external CLI invocations:
 
