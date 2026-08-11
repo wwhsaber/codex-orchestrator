@@ -56,6 +56,74 @@ write_state() {
   mv "$state_temp" "$state_file"
 }
 
+task_process_matches() {
+  checked_pid=$1
+  checked_task_id=$2
+  case "$checked_pid" in
+    ''|0|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$checked_pid" 2>/dev/null || return 1
+  process_command=$(ps -p "$checked_pid" -o command= 2>/dev/null || true)
+  case "$process_command" in
+    *"_run"*"$checked_task_id"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+finish_missing_process() {
+  state_dir=$1
+  state_file="$state_dir/state"
+  task_id=$(read_field task_id "$state_file")
+  [ -n "$task_id" ] || task_id=$(basename "$state_dir")
+  task_title=$(read_field title "$state_file")
+  lane_name=$(read_field lane "$state_file")
+  model_label=$(read_field model "$state_file")
+  lane_mode=$(read_field mode "$state_file")
+  lane_pid=$(read_field pid "$state_file")
+  launch_label=$(read_field launch_label "$state_file")
+  controller_path=$(read_field controller "$state_file")
+  [ -n "$controller_path" ] || controller_path=$0
+  started_at=$(read_field started_at "$state_file")
+  lane_cwd=$(read_field cwd "$state_file")
+  spec_file=$(read_field spec "$state_file")
+  log_file=$(read_field log "$state_file")
+  [ -n "$log_file" ] || log_file="$state_dir/lane.log"
+  supervisor_log_file=$(read_field supervisor_log "$state_file")
+  [ -n "$supervisor_log_file" ] || supervisor_log_file="$state_dir/supervisor.log"
+  result_file=$(read_field result "$state_file")
+  [ -n "$result_file" ] || result_file="$state_dir/result.txt"
+  result_source_file=$(read_field result_source "$state_file")
+  done_file=$(read_field "done" "$state_file")
+  [ -n "$done_file" ] || done_file="$state_dir/done"
+
+  log_bytes=0
+  result_truncated=false
+  selected_result_file=$log_file
+  if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
+    selected_result_file=$result_source_file
+  fi
+  if [ -f "$selected_result_file" ]; then
+    if [ -f "$log_file" ]; then
+      log_bytes=$(wc -c < "$log_file" | tr -d ' ')
+    fi
+    selected_result_bytes=$(wc -c < "$selected_result_file" | tr -d ' ')
+    if [ "$selected_result_bytes" -gt "$result_limit_bytes" ]; then
+      tail -c "$result_limit_bytes" "$selected_result_file" > "$result_file"
+      result_truncated=true
+    else
+      cp "$selected_result_file" "$result_file"
+    fi
+  else
+    : > "$result_file"
+  fi
+
+  lane_state=interrupted
+  exit_code=125
+  state_message=process_missing
+  write_state
+  : > "$done_file"
+}
+
 require_value() {
   option_name=$1
   option_value=${2-}
@@ -272,7 +340,7 @@ command_start() {
       existing_pid=$(sed -n '1p' "$launcher_pid_file")
     fi
     if { [ "$existing_state" = "starting" ] || [ "$existing_state" = "running" ]; } \
-      && [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+      && task_process_matches "$existing_pid" "$task_id"; then
       printf 'ALREADY_RUNNING lane=%s pid=%s state=%s log=%s result=%s\n' \
         "$lane_name" "$existing_pid" "$state_file" "$log_file" "$result_file"
       exit 0
@@ -471,20 +539,40 @@ command_status() {
   fi
   state_file=$2/state
   launcher_pid_file=$2/launcher.pid
+  done_file=$2/done
   if [ ! -f "$state_file" ]; then
     printf 'MISSING state=%s\n' "$state_file"
     exit 1
   fi
-  cat "$state_file"
   lane_state=$(read_field state "$state_file")
+  saved_done_file=$(read_field "done" "$state_file")
+  [ -n "$saved_done_file" ] && done_file=$saved_done_file
+  case "$lane_state" in
+    exited|failed|cancelled|interrupted)
+      [ -f "$done_file" ] || : > "$done_file"
+      ;;
+  esac
   lane_pid=$(read_field pid "$state_file")
+  task_id=$(read_field task_id "$state_file")
+  [ -n "$task_id" ] || task_id=$(basename "$2")
   if [ "$lane_state" = "starting" ] && [ -f "$launcher_pid_file" ]; then
     lane_pid=$(sed -n '1p' "$launcher_pid_file")
   fi
-  if { [ "$lane_state" = "starting" ] || [ "$lane_state" = "running" ]; } \
-    && ! kill -0 "$lane_pid" 2>/dev/null; then
-    printf 'observed_state=process_missing\n'
+  if [ "$lane_state" = "running" ] || [ "$lane_state" = "starting" ]; then
+    case "$lane_pid" in
+      ''|0|*[!0-9]*)
+        if [ "$lane_state" = "running" ]; then
+          finish_missing_process "$2"
+        fi
+        ;;
+      *)
+        if ! task_process_matches "$lane_pid" "$task_id"; then
+          finish_missing_process "$2"
+        fi
+        ;;
+    esac
   fi
+  cat "$state_file"
 }
 
 command_await() {
@@ -504,7 +592,10 @@ command_await() {
     printf 'MISSING state=%s\n' "$state_file" >&2
     exit 1
   fi
+  task_id=$(read_field task_id "$state_file")
+  [ -n "$task_id" ] || task_id=$(basename "$state_dir")
 
+  empty_pid_checks=0
   while [ ! -f "$done_file" ]; do
     lane_state=$(read_field state "$state_file")
     lane_pid=$(read_field pid "$state_file")
@@ -512,14 +603,25 @@ command_await() {
       lane_pid=$(sed -n '1p' "$launcher_pid_file")
     fi
 
+    case "$lane_state" in
+      exited|failed|cancelled|interrupted)
+        : > "$done_file"
+        continue
+        ;;
+    esac
+
     case "$lane_state:$lane_pid" in
-      starting:0|running:0|starting:|running:|starting:*[!0-9]*|running:*[!0-9]*) ;;
+      starting:0|running:0|starting:|running:|starting:*[!0-9]*|running:*[!0-9]*)
+        empty_pid_checks=$((empty_pid_checks + 1))
+        if [ "$empty_pid_checks" -ge 5 ]; then
+          finish_missing_process "$state_dir"
+          continue
+        fi
+        ;;
       starting:*|running:*)
-        if ! kill -0 "$lane_pid" 2>/dev/null; then
-          printf 'AWAIT_ABORTED\n'
-          cat "$state_file"
-          printf 'observed_state=process_missing\n'
-          exit 1
+        if ! task_process_matches "$lane_pid" "$task_id"; then
+          finish_missing_process "$state_dir"
+          continue
         fi
         ;;
     esac
@@ -561,7 +663,7 @@ command_stop() {
 
   lane_state=$(read_field state "$state_file")
   case "$lane_state" in
-    exited|failed|cancelled)
+    exited|failed|cancelled|interrupted)
       printf 'ALREADY_TERMINAL state=%s path=%s\n' "$lane_state" "$state_file"
       exit 0
       ;;
@@ -595,6 +697,14 @@ command_stop() {
 
   if [ "$lane_state" = "starting" ] && [ -f "$launcher_pid_file" ]; then
     lane_pid=$(sed -n '1p' "$launcher_pid_file")
+  fi
+
+  if { [ "$lane_state" = "starting" ] || [ "$lane_state" = "running" ]; } \
+    && ! task_process_matches "$lane_pid" "$task_id"; then
+    finish_missing_process "$state_dir"
+    printf 'INTERRUPTED lane=%s pid=%s state=%s result=%s\n' \
+      "$lane_name" "$lane_pid" "$state_file" "$result_file"
+    exit 0
   fi
 
   if [ -n "$launch_label" ] && command -v screen >/dev/null 2>&1; then
@@ -651,7 +761,7 @@ command_result() {
   fi
   lane_state=$(read_field state "$state_file")
   case "$lane_state" in
-    exited|failed|cancelled) cat "$result_file" ;;
+    exited|failed|cancelled|interrupted) cat "$result_file" ;;
     *)
       printf 'Result is not ready; state=%s\n' "$lane_state" >&2
       exit 1

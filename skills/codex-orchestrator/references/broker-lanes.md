@@ -146,6 +146,8 @@ The optional Broker runs the supplied `start` command exactly once, returns `STA
 
 `await` emits nothing while the process runs. After `done` appears, it returns `AWAIT_COMPLETE`, the state snapshot, and `result.txt` exactly once. This keeps automatic continuation without model-side status turns.
 
+If the recorded supervisor process disappears before writing `done`, `await` writes an `interrupted` terminal state, captures the available bounded result, creates `done`, and returns once. The terminal dashboard independently presents old active records with missing or mismatched processes as `INTERRUPTED`.
+
 Use `status` separately only when the user explicitly asks for status:
 
 ```bash

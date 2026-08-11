@@ -376,6 +376,7 @@ fn status_style(state: &str) -> Style {
         "exited" => Color::Cyan,
         "failed" => Color::Red,
         "cancelled" => Color::Magenta,
+        "interrupted" => Color::Yellow,
         _ => Color::Gray,
     };
     Style::default().fg(color).add_modifier(Modifier::BOLD)

@@ -91,6 +91,7 @@ pub fn discover_tasks(root: &Path) -> Result<Vec<Task>> {
         return Ok(Vec::new());
     }
 
+    let process_commands = lane_process_commands();
     let mut tasks = Vec::new();
     for entry in fs::read_dir(root).with_context(|| format!("read {}", root.display()))? {
         let entry = entry?;
@@ -103,7 +104,10 @@ pub fn discover_tasks(root: &Path) -> Result<Vec<Task>> {
             continue;
         }
         match parse_task(&state_file, &state_dir) {
-            Ok(task) => tasks.push(task),
+            Ok(mut task) => {
+                refresh_task_state(&mut task, process_commands.as_ref());
+                tasks.push(task);
+            }
             Err(error) => eprintln!("skip {}: {error:#}", state_file.display()),
         }
     }
@@ -226,6 +230,72 @@ fn field(fields: &HashMap<&str, &str>, name: &str) -> String {
     fields.get(name).copied().unwrap_or_default().to_owned()
 }
 
+fn refresh_task_state(task: &mut Task, process_commands: Option<&HashMap<u32, String>>) {
+    if !task.is_active() {
+        return;
+    }
+    let process_missing = if task.pid == 0 {
+        task.state == "running"
+            || parse_time(&task.updated_at)
+                .is_some_and(|time| (Utc::now() - time).num_seconds() >= 10)
+    } else {
+        !task_process_matches(task, process_commands)
+    };
+    if !process_missing {
+        return;
+    }
+
+    task.state = "interrupted".to_owned();
+    task.message = "process_missing".to_owned();
+    if let Some(updated_at) = newest_artifact_time(task) {
+        task.updated_at = updated_at.to_rfc3339();
+    }
+}
+
+fn lane_process_commands() -> Option<HashMap<u32, String>> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim_start();
+                let separator = line.find(char::is_whitespace)?;
+                let pid = line[..separator].parse().ok()?;
+                let command = line[separator..].trim_start().to_owned();
+                Some((pid, command))
+            })
+            .collect(),
+    )
+}
+
+fn task_process_matches(task: &Task, process_commands: Option<&HashMap<u32, String>>) -> bool {
+    let Some(process_commands) = process_commands else {
+        return true;
+    };
+    process_commands
+        .get(&task.pid)
+        .is_some_and(|command| command.contains("_run") && command.contains(&task.id))
+}
+
+fn newest_artifact_time(task: &Task) -> Option<DateTime<Utc>> {
+    [
+        task.state_dir.join("state"),
+        task.log.clone(),
+        task.result.clone(),
+    ]
+    .into_iter()
+    .filter_map(|path| fs::metadata(path).ok()?.modified().ok())
+    .max()
+    .map(DateTime::<Utc>::from)
+}
+
 fn read_tail(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
@@ -311,5 +381,42 @@ mod tests {
         ];
         assert_eq!(find_task(&tasks, "abc").unwrap().id, "abc123");
         assert!(find_task(&tasks, "missing").is_err());
+    }
+
+    #[test]
+    fn marks_a_missing_lane_process_as_interrupted() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_dir = temp.path().join("task-stale");
+        fs::create_dir(&state_dir).unwrap();
+        fs::write(
+            state_dir.join("state"),
+            "version=1\nstate=running\nlane=grok\npid=4294967295\nstarted_at=2026-08-09T12:00:00Z\nupdated_at=2026-08-09T12:00:02Z\n",
+        )
+        .unwrap();
+
+        let tasks = discover_tasks(temp.path()).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].state, "interrupted");
+        assert_eq!(tasks[0].message, "process_missing");
+        assert!(!tasks[0].is_active());
+    }
+
+    #[test]
+    fn rejects_an_unrelated_process_with_the_same_pid() {
+        let task = Task {
+            id: "task-123".to_owned(),
+            pid: 42,
+            ..Task::default()
+        };
+        let mut process_commands = HashMap::from([(42, "sleep 60".to_owned())]);
+
+        assert!(!task_process_matches(&task, Some(&process_commands)));
+
+        process_commands.insert(
+            42,
+            "/bin/sh lane-supervisor.sh _run --state-dir /tmp/task-123".to_owned(),
+        );
+        assert!(task_process_matches(&task, Some(&process_commands)));
     }
 }

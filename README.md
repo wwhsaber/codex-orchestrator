@@ -115,6 +115,8 @@ codex-orchestrator
 
 The dashboard reads local supervisor state and logs directly. It does not call a model and does not add content to the main Codex session.
 
+If a saved task says `running` but its recorded supervisor process no longer exists or belongs to another process, the dashboard presents it as `INTERRUPTED` and excludes it from the Running filter. The supervisor also writes this terminal state when `status` or `await` observes a missing process, so crashes, forced exits, and machine restarts do not leave a task permanently active.
+
 ```text
 Up/Down        select a task or scroll output
 Enter / l      open the live log
