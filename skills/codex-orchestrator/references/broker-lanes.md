@@ -1,132 +1,143 @@
 # External CLI Lanes
 
-By default, launch each external CLI lane by running the bundled non-model supervisor directly from the main session. The `start` command returns `STARTED` or `ALREADY_RUNNING` immediately; the supervisor then owns the detached external process.
+Launch external CLI lanes through the bundled non-model supervisor. The main session writes one bounded spec, starts the lane, blocks once in `await`, and verifies the final diff. The supervisor and output adapter use no model tokens.
 
-## Runtime Profile
+## Shared Setup
 
-The main session, supervisor, and external producer are separate layers:
-
-```text
-Main session: writes the spec, starts the supervisor, waits once, and verifies
-Lane supervisor: shell process, no model and no Codex tokens
-Luna producer: gpt-5.6-luna, max reasoning, priority service (Fast)
+```bash
+SUPERVISOR="$SKILL_DIR/scripts/lane-supervisor.sh"
+ADAPTER="$SKILL_DIR/scripts/agent-output.mjs"
+TASK_KEY=$("$SUPERVISOR" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
+STATE_DIR="${TMPDIR:-/tmp}/codex-orchestrator/$TASK_KEY"
+WATCH="$STATE_DIR/lane.log"
+FINAL="$STATE_DIR/final.txt"
+DIAGNOSTIC="$STATE_DIR/diagnostic.log"
 ```
 
-Direct launch is the default because a deterministic shell command does not require another model inference.
-
-## Launch Input
-
-The main session computes and passes:
-
-- Lane name.
-- Working directory.
-- Spec path.
-- Exact supervisor start command.
-- Read-only or write-producing mode.
-- A concise task title and accurate model label for the terminal dashboard.
-
-The spec should normally be 4-8 KiB and must not exceed 16 KiB. Validate it before computing the task key:
+Validate every spec first:
 
 ```bash
 "$SUPERVISOR" check-spec --spec "$SPEC"
 ```
 
-The `key` and `start` commands repeat this check. Replace copied conversation, logs, diffs, and source blocks with precise workspace paths and search anchors.
+The spec should normally be 4-8 KiB and cannot exceed 16 KiB. Pass workspace paths and search anchors instead of conversation history, logs, diffs, or large source blocks.
 
-## State Directory
-
-Before starting the lane, the main session computes the stable task key and state directory:
+Every start command must include these supervisor arguments:
 
 ```bash
-SUPERVISOR="$SKILL_DIR/scripts/lane-supervisor.sh"
-TASK_KEY=$("$SUPERVISOR" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
-STATE_DIR="${TMPDIR:-/tmp}/codex-orchestrator/$TASK_KEY"
+--lane "$LANE" --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+--result-source "$FINAL" --ephemeral-watch \
+--title "$TITLE" --model-label "$MODEL_LABEL" --mode "$MODE"
 ```
 
-The task key combines lane, working directory, and spec content. Starting the same live task again returns `ALREADY_RUNNING` instead of creating another external process.
+`MODE` is `read` or `write`. The examples below are read-only unless stated otherwise.
 
-## Start Commands
+## Lane Commands
 
-Always pass `--title`, `--model-label`, and `--mode` to `start`. Use the actual selected model in the label, and set mode to `read` or `write`. The examples below are read-only:
-
-Grok:
+### Grok
 
 ```bash
 "$SUPERVISOR" start \
   --lane grok --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "grok default" --mode read -- \
   env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false \
-  grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$CWD"
+  node "$ADAPTER" --format grok --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" -- \
+  grok --no-subagents --prompt-file "$SPEC" \
+  --output-format streaming-messages-json --include-partial-messages --cwd "$CWD"
 ```
 
-Claude:
+For write work add `--permission-mode bypassPermissions`. If the user names a model, add `-m MODEL`. Keep `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not combine `--check` with `--no-subagents`.
+
+### Claude
 
 ```bash
 "$SUPERVISOR" start \
-  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" \
+  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" \
+  --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "sonnet / high" --mode read -- \
-  claude -p --model sonnet --effort high
+  node "$ADAPTER" --format claude --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" -- \
+  claude -p --model sonnet --effort high --verbose \
+  --output-format stream-json --include-partial-messages
 ```
 
-Antigravity:
+For write work add `--permission-mode bypassPermissions`.
+
+### Gemini Through Antigravity
 
 ```bash
 "$SUPERVISOR" start \
   --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "gemini-3.6-flash-high" --mode read -- \
+  node "$ADAPTER" --format agy --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" -- \
   agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
-  --print-timeout 15m --model gemini-3.6-flash-high
+  --print-timeout 15m --model gemini-3.6-flash-high --output-format stream-json
 ```
 
-Luna:
+The prompt must immediately follow `--print`. For write work replace `--mode plan` with `--mode accept-edits`; retain `--dangerously-skip-permissions` so a headless permission prompt cannot stall the lane. Never use an Antigravity Claude model.
+
+### OpenCode
 
 ```bash
-EVENT_LOG="$SKILL_DIR/scripts/codex-event-log.sh"
-FINAL="$STATE_DIR/luna-final.txt"
-RAW="$STATE_DIR/luna-events.jsonl"
-
 "$SUPERVISOR" start \
-  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" --state-dir "$STATE_DIR" \
-  --result-source "$FINAL" --title "$TITLE" \
-  --model-label "gpt-5.6-luna / max / fast" --mode read -- \
-  "$EVENT_LOG" --raw "$RAW" -- \
+  --lane opencode --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
+  --result-source "$FINAL" --ephemeral-watch \
+  --title "$TITLE" --model-label "opencode default" --mode read -- \
+  node "$ADAPTER" --format opencode --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" -- \
+  opencode run --format json --thinking --agent plan --dir "$CWD" "$(cat "$SPEC")"
+```
+
+For write work use `--agent build --auto`. If the user names an OpenCode model, add `--model PROVIDER/MODEL` and report that exact value in `--model-label`.
+
+### Luna
+
+```bash
+"$SUPERVISOR" start \
+  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" \
+  --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
+  --title "$TITLE" --model-label "gpt-5.6-luna / max / fast" --mode read -- \
+  node "$ADAPTER" --format codex --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" -- \
   codex exec --json --output-last-message "$FINAL" \
   --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
   -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
 ```
 
-For write-producing Luna work, replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Do not change Luna's model, `max` reasoning, Fast service, permissions, or tool access for log-size control. `lane.log` retains command lifecycle, errors, agent messages, and usage without successful command output. While running, the complete JSONL stream is at `luna-events.jsonl`; after exit it is compressed to `luna-events.jsonl.gz`. The exact final message is copied through `luna-final.txt` into `result.txt`.
+For write work replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Luna always means `gpt-5.6-luna`, `max`, and priority service (Fast). Do not restrict its tools for output-size control.
 
-Add each other CLI's broad edit approval flags for write-producing work. Gemini requests always use Antigravity `agy`; do not select an Antigravity Claude model.
+## Output Files
+
+The adapter separates three audiences:
+
+- `lane.log`: live user-facing output, capped at 2 MiB. It contains lifecycle, tool summaries, errors, response availability, and thinking text explicitly emitted by the CLI. It never claims access to hidden reasoning.
+- `final.txt`: exact best final response from the event stream. The supervisor copies at most 16 KiB into `result.txt`, which is the only agent output returned by `await` to the main session.
+- `diagnostic.log.tmp`: capped raw event stream while running. It is deleted after success, moved to `diagnostic.log` after failure or interruption, and old diagnostics are removed after seven days.
+
+With `--ephemeral-watch`, `lane.log` and `final.txt` are deleted after terminal state. The terminal dashboard can display them while the lane is active. A failed or interrupted lane retains only the bounded diagnostic needed for investigation.
+
+This protocol applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI. Codex runtime worker and explorer transcripts remain owned by the Codex runtime rather than these files.
 
 ## Direct Launch And Await
 
-Run `start` and `await` in one shell invocation so a successful launch receipt does not create a model turn:
+Run `start` and `await` in one shell invocation:
 
 ```bash
-launch_receipt=$("$SUPERVISOR" start \
-  --lane "$LANE" --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
-  --title "$TITLE" --model-label "$MODEL_LABEL" --mode "$MODE" -- \
-  COMMAND ARGUMENTS) || exit $?
+launch_receipt=$("$SUPERVISOR" start START_ARGUMENTS -- COMMAND ARGUMENTS) || exit $?
 "$SUPERVISOR" await --state-dir "$STATE_DIR"
 ```
 
-Replace `COMMAND ARGUMENTS` with the lane command from the preceding section and include any required `--stdin` or `--result-source` supervisor options. If `start` fails, return its error immediately. On success:
+Keep the successful launch receipt inside the shell. Do not poll state, read logs, inspect diffs, or narrate routine progress while the lane runs. If the command tool yields a live shell session, continue only that session at the longest supported wait. The user can watch `lane.log` through `codex-orchestrator agents` without consuming Codex tokens.
 
-1. Keep `launch_receipt` inside the shell; do not return it to the main model before completion.
-2. Do not poll `status`, agent transcripts, logs, diffs, or the `done` marker.
-3. Do not narrate waiting progress or summarize routine activity.
-4. If the command tool yields a live shell session, continue only that same session with the longest supported wait. Never start another wait or read another artifact.
-5. The user may watch `lane.log` directly without routing it through a model.
-6. When `await` returns, use its single terminal state and bounded result to inspect the diff and verify.
+For multiple lanes, start all lanes before the first `await`, then await all of them in the same blocking shell invocation.
 
-For multiple lanes, start every lane before the first `await`, then run all required `await` commands inside that same blocking shell invocation so the main model does not wake between lane completions.
+The stable task key combines lane, working directory, and spec content. Starting the same live task again returns `ALREADY_RUNNING` rather than creating a duplicate process.
 
-The captured `STARTED` receipt proves only that the background lane was launched. It does not claim that the external task finished.
-
-## User Terminal Dashboard
-
-The optional Rust binary discovers every state directory under `${TMPDIR:-/tmp}/codex-orchestrator` and shows all running and finished Lanes without sending logs through a model:
+## Terminal Dashboard
 
 ```bash
 codex-orchestrator
@@ -135,40 +146,20 @@ codex-orchestrator list --all
 codex-orchestrator watch <task-id>
 ```
 
-`codex-orchestrator agents` keeps one live log pane per running Agent. It discovers new lanes automatically, removes panes as lanes finish, and lays panes out horizontally before adding rows. Multiple terminals may also watch different task IDs concurrently. The TUI reads `state`, `lane.log`, and `result.txt`; it never changes the main session's silent `await`. Its stop action calls the recorded supervisor controller and requires confirmation.
+`codex-orchestrator agents` discovers new lanes automatically, lays panes out horizontally before adding rows, and removes a pane when its lane finishes. The TUI reads local files only and does not change the main session's silent wait.
 
-## Optional Broker Mode
-
-Use a Broker only when the user explicitly asks for a visible Broker sub-agent card or isolated launcher. Spawn one Terra Low Broker per external lane with `fork_turns="none"`, low reasoning, and default service. Give it only the lane metadata, working directory, spec path, state directory, exact supervisor start command, and expected mode.
-
-The optional Broker runs the supplied `start` command exactly once, returns `STARTED`, `ALREADY_RUNNING`, or a short launch error, and exits. It must not analyze the task, copy the spec body, inspect artifacts, wait for the external process, or narrate progress. Wait once for all Broker launch receipts, then use the same silent supervisor `await` flow. A completed Broker card remains launch evidence only.
-
-## Await, Status And Result
-
-`await` emits nothing while the process runs. After `done` appears, it returns `AWAIT_COMPLETE`, the state snapshot, and `result.txt` exactly once. This keeps automatic continuation without model-side status turns.
-
-If the recorded supervisor process disappears before writing `done`, `await` writes an `interrupted` terminal state, captures the available bounded result, creates `done`, and returns once. The terminal dashboard independently presents old active records with missing or mismatched processes as `INTERRUPTED`.
-
-Use `status` separately only when the user explicitly asks for status:
+Use `status` only when the user explicitly requests status. Stop a lane only on explicit user action:
 
 ```bash
 "$SUPERVISOR" status --state-dir "$STATE_DIR"
-```
-
-Use `result` separately only when state is already terminal and `await` was not used:
-
-```bash
+"$SUPERVISOR" stop --state-dir "$STATE_DIR"
 "$SUPERVISOR" result --state-dir "$STATE_DIR"
 ```
 
-Stop a Lane only on explicit user action:
+## Optional Broker
 
-```bash
-"$SUPERVISOR" stop --state-dir "$STATE_DIR"
-```
+Use a Broker only when the user explicitly asks for a visible launcher card. One Terra Low Broker starts one supplied supervisor command and exits immediately after `STARTED`, `ALREADY_RUNNING`, or a short launch error. It must not inspect the spec, wait, read lane files, or judge the result.
 
-`result.txt` contains at most the final 16 KiB of output. Grok, Claude, and Antigravity keep their normal full `lane.log`. Luna keeps a compact `lane.log`, its exact final message in `result.txt`, and its compressed raw event stream beside them for targeted diagnosis. After completion, inspect the actual diff and run scoped verification in the main session.
+## Scoped Verification
 
-## Scoped Verification Commands
-
-Every lane spec must name the narrowest relevant test and format commands for its owned files. External producers must not replace those commands with all tests or a full-repository format check. If the repository tooling has no path-, module-, package-, test-file-, or test-case-level command, return that limitation to the main session and wait for explicit user permission before any broader run.
+Every spec must name the narrowest relevant test and format commands. External producers must not run all tests or a repository-wide format check without explicit user permission. If no path-, module-, package-, test-file-, or test-case-level command exists, return that limitation and wait for permission before a broader run.

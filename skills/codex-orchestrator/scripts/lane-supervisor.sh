@@ -3,13 +3,14 @@ set -eu
 
 result_limit_bytes=16384
 spec_limit_bytes=16384
+diagnostic_retention_days=7
 
 usage() {
   printf '%s\n' \
     'Usage:' \
     '  lane-supervisor.sh check-spec --spec FILE' \
     '  lane-supervisor.sh key --lane NAME --cwd DIR --spec FILE' \
-    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--title TEXT] [--model-label TEXT] [--mode read|write] [--stdin FILE] [--result-source FILE] -- COMMAND [ARG...]' \
+    '  lane-supervisor.sh start --lane NAME --cwd DIR --spec FILE --state-dir DIR [--title TEXT] [--model-label TEXT] [--mode read|write] [--stdin FILE] [--result-source FILE] [--ephemeral-watch] -- COMMAND [ARG...]' \
     '  lane-supervisor.sh await --state-dir DIR' \
     '  lane-supervisor.sh status --state-dir DIR' \
     '  lane-supervisor.sh stop --state-dir DIR' \
@@ -29,7 +30,7 @@ read_field() {
 write_state() {
   state_temp="${state_file}.tmp.$$"
   {
-    printf 'version=2\n'
+    printf 'version=3\n'
     printf 'task_id=%s\n' "$task_id"
     printf 'title=%s\n' "$task_title"
     printf 'state=%s\n' "$lane_state"
@@ -47,6 +48,8 @@ write_state() {
     printf 'supervisor_log=%s\n' "$supervisor_log_file"
     printf 'result=%s\n' "$result_file"
     printf 'result_source=%s\n' "$result_source_file"
+    printf 'ephemeral_watch=%s\n' "$ephemeral_watch"
+    printf 'diagnostic=%s\n' "$diagnostic_file"
     printf 'done=%s\n' "$done_file"
     printf 'exit_code=%s\n' "$exit_code"
     printf 'log_bytes=%s\n' "$log_bytes"
@@ -68,6 +71,33 @@ task_process_matches() {
     *"_run"*"$checked_task_id"*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+finish_output_files() {
+  if [ "$ephemeral_watch" != "true" ]; then
+    return
+  fi
+  diagnostic_temp="${diagnostic_file}.tmp"
+  if [ "$lane_state" = "interrupted" ] && [ -f "$diagnostic_temp" ] \
+    && [ ! -f "$diagnostic_file" ]; then
+    mv "$diagnostic_temp" "$diagnostic_file"
+  else
+    rm -f "$diagnostic_temp"
+  fi
+  rm -f "$log_file"
+  if [ -n "$result_source_file" ] && [ "$result_source_file" != "$result_file" ]; then
+    rm -f "$result_source_file"
+  fi
+  case "$lane_state" in
+    exited|cancelled) rm -f "$supervisor_log_file" ;;
+  esac
+}
+
+clean_old_diagnostics() {
+  state_root_dir=$1
+  find "$state_root_dir" -mindepth 2 -maxdepth 2 \
+    \( -name diagnostic.log -o -name diagnostic.log.tmp \) \
+    -type f -mtime "+$diagnostic_retention_days" -delete 2>/dev/null || true
 }
 
 finish_missing_process() {
@@ -93,11 +123,27 @@ finish_missing_process() {
   result_file=$(read_field result "$state_file")
   [ -n "$result_file" ] || result_file="$state_dir/result.txt"
   result_source_file=$(read_field result_source "$state_file")
+  ephemeral_watch=$(read_field ephemeral_watch "$state_file")
+  [ -n "$ephemeral_watch" ] || ephemeral_watch=false
+  diagnostic_file=$(read_field diagnostic "$state_file")
+  [ -n "$diagnostic_file" ] || diagnostic_file="$state_dir/diagnostic.log"
   done_file=$(read_field "done" "$state_file")
   [ -n "$done_file" ] || done_file="$state_dir/done"
 
   log_bytes=0
   result_truncated=false
+  if [ "$ephemeral_watch" = "true" ] && { [ -z "$result_source_file" ] \
+    || [ ! -s "$result_source_file" ]; }; then
+    printf '%s\n' 'STATUS: interrupted' 'The agent process ended before emitting a final response.' \
+      > "$result_file"
+    lane_state=interrupted
+    exit_code=125
+    state_message=process_missing
+    write_state
+    : > "$done_file"
+    finish_output_files
+    return
+  fi
   selected_result_file=$log_file
   if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
     selected_result_file=$result_source_file
@@ -122,6 +168,7 @@ finish_missing_process() {
   state_message=process_missing
   write_state
   : > "$done_file"
+  finish_output_files
 }
 
 require_value() {
@@ -225,6 +272,7 @@ command_start() {
   state_dir=
   stdin_file=
   result_source_file=
+  ephemeral_watch=false
   task_title=
   model_label=
   lane_mode=
@@ -276,6 +324,10 @@ command_start() {
         result_source_file=$2
         shift 2
         ;;
+      --ephemeral-watch)
+        ephemeral_watch=true
+        shift
+        ;;
       --)
         shift
         break
@@ -323,10 +375,12 @@ command_start() {
   log_file="$state_dir/lane.log"
   supervisor_log_file="$state_dir/supervisor.log"
   result_file="$state_dir/result.txt"
+  diagnostic_file="$state_dir/diagnostic.log"
   done_file="$state_dir/done"
   launcher_pid_file="$state_dir/launcher.pid"
   stop_marker_file="$state_dir/stop-requested"
   task_id=$(basename "$state_dir")
+  clean_old_diagnostics "$(dirname "$state_dir")"
 
   case "$0" in
     /*) controller_path=$0 ;;
@@ -362,6 +416,7 @@ command_start() {
   : > "$log_file"
   : > "$supervisor_log_file"
   : > "$result_file"
+  rm -f "$diagnostic_file" "${diagnostic_file}.tmp"
   if [ -n "$result_source_file" ]; then
     mkdir -p "$(dirname "$result_source_file")"
     : > "$result_source_file"
@@ -380,6 +435,7 @@ command_start() {
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
       --result-source "$result_source_file" \
+      --ephemeral-watch "$ephemeral_watch" \
       --title "$task_title" \
       --model-label "$model_label" \
       --mode "$lane_mode" \
@@ -394,6 +450,7 @@ command_start() {
       state_message=launch_failed
       write_state
       : > "$done_file"
+      finish_output_files
       exit "$launch_exit"
     fi
 
@@ -416,6 +473,7 @@ command_start() {
       --state-dir "$state_dir" \
       --stdin "$stdin_file" \
       --result-source "$result_source_file" \
+      --ephemeral-watch "$ephemeral_watch" \
       --title "$task_title" \
       --model-label "$model_label" \
       --mode "$lane_mode" \
@@ -439,6 +497,7 @@ command_run() {
   state_dir=
   stdin_file=
   result_source_file=
+  ephemeral_watch=false
   started_at=
   launch_label=
   task_title=
@@ -453,6 +512,7 @@ command_run() {
       --state-dir) state_dir=$2; shift 2 ;;
       --stdin) stdin_file=$2; shift 2 ;;
       --result-source) result_source_file=$2; shift 2 ;;
+      --ephemeral-watch) ephemeral_watch=$2; shift 2 ;;
       --title) task_title=$2; shift 2 ;;
       --model-label) model_label=$2; shift 2 ;;
       --mode) lane_mode=$2; shift 2 ;;
@@ -467,6 +527,7 @@ command_run() {
   log_file="$state_dir/lane.log"
   supervisor_log_file="$state_dir/supervisor.log"
   result_file="$state_dir/result.txt"
+  diagnostic_file="$state_dir/diagnostic.log"
   done_file="$state_dir/done"
   stop_marker_file="$state_dir/stop-requested"
   task_id=$(basename "$state_dir")
@@ -486,8 +547,10 @@ command_run() {
     lane_state=failed
     exit_code=72
     state_message=working_directory_unavailable
+    printf '%s\n' 'STATUS: failed' 'The lane working directory is unavailable.' > "$result_file"
     write_state
     : > "$done_file"
+    finish_output_files
     exit "$exit_code"
   fi
 
@@ -501,12 +564,25 @@ command_run() {
   set -e
 
   log_bytes=$(wc -c < "$log_file" | tr -d ' ')
-  selected_result_file=$log_file
-  if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
-    selected_result_file=$result_source_file
+  if [ "$ephemeral_watch" = "true" ] && { [ -z "$result_source_file" ] \
+    || [ ! -s "$result_source_file" ]; }; then
+    if [ "$command_exit" -eq 0 ]; then
+      printf '%s\n' 'STATUS: completed' 'The agent emitted no final response.' > "$result_file"
+    else
+      printf 'STATUS: failed\nAgent process ended with code %s before emitting a final response.\n' \
+        "$command_exit" > "$result_file"
+    fi
+    selected_result_file=$result_file
+  else
+    selected_result_file=$log_file
+    if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
+      selected_result_file=$result_source_file
+    fi
   fi
   selected_result_bytes=$(wc -c < "$selected_result_file" | tr -d ' ')
-  if [ "$selected_result_bytes" -gt "$result_limit_bytes" ]; then
+  if [ "$selected_result_file" = "$result_file" ]; then
+    result_truncated=false
+  elif [ "$selected_result_bytes" -gt "$result_limit_bytes" ]; then
     tail -c "$result_limit_bytes" "$selected_result_file" > "$result_file"
     result_truncated=true
   else
@@ -528,6 +604,7 @@ command_run() {
   fi
   write_state
   : > "$done_file"
+  finish_output_files
   exit "$command_exit"
 }
 
@@ -691,6 +768,10 @@ command_stop() {
   supervisor_log_file=$(read_field supervisor_log "$state_file")
   result_file=$(read_field result "$state_file")
   result_source_file=$(read_field result_source "$state_file")
+  ephemeral_watch=$(read_field ephemeral_watch "$state_file")
+  [ -n "$ephemeral_watch" ] || ephemeral_watch=false
+  diagnostic_file=$(read_field diagnostic "$state_file")
+  [ -n "$diagnostic_file" ] || diagnostic_file="$state_dir/diagnostic.log"
   done_file=$(read_field "done" "$state_file")
   [ -n "$done_file" ] || done_file="$state_dir/done"
   : > "$stop_marker_file"
@@ -726,13 +807,29 @@ command_stop() {
 
   log_bytes=0
   result_truncated=false
-  if [ -f "$log_file" ]; then
-    log_bytes=$(wc -c < "$log_file" | tr -d ' ')
-    if [ "$log_bytes" -gt "$result_limit_bytes" ]; then
-      tail -c "$result_limit_bytes" "$log_file" > "$result_file"
+  if [ "$ephemeral_watch" = "true" ] && { [ -z "$result_source_file" ] \
+    || [ ! -s "$result_source_file" ]; }; then
+    printf '%s\n' 'STATUS: cancelled' 'The agent was stopped before emitting a final response.' \
+      > "$result_file"
+    selected_result_file=$result_file
+  else
+    selected_result_file=$log_file
+    if [ -n "$result_source_file" ] && [ -s "$result_source_file" ]; then
+      selected_result_file=$result_source_file
+    fi
+  fi
+  if [ -f "$selected_result_file" ]; then
+    if [ -f "$log_file" ]; then
+      log_bytes=$(wc -c < "$log_file" | tr -d ' ')
+    fi
+    selected_result_bytes=$(wc -c < "$selected_result_file" | tr -d ' ')
+    if [ "$selected_result_file" = "$result_file" ]; then
+      result_truncated=false
+    elif [ "$selected_result_bytes" -gt "$result_limit_bytes" ]; then
+      tail -c "$result_limit_bytes" "$selected_result_file" > "$result_file"
       result_truncated=true
     else
-      cp "$log_file" "$result_file"
+      cp "$selected_result_file" "$result_file"
     fi
   else
     : > "$result_file"
@@ -743,6 +840,7 @@ command_stop() {
   state_message=user_stopped
   write_state
   : > "$done_file"
+  finish_output_files
   printf 'STOPPED lane=%s pid=%s state=%s result=%s\n' \
     "$lane_name" "$lane_pid" "$state_file" "$result_file"
 }

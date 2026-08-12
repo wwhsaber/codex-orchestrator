@@ -1,6 +1,6 @@
 ---
 name: codex-orchestrator
-description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok, claude, agy, or luna. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
+description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model CLI lane such as grok, claude, agy, opencode, or luna. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
 ---
 
 # Codex Orchestrator
@@ -67,7 +67,7 @@ This policy governs interactive and delegated task verification. Existing reposi
 
 ## External Lane Launch Mode
 
-Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. By default, the main session runs `scripts/lane-supervisor.sh start` directly. The supervisor detaches the Grok, Claude, Antigravity, Luna, or Codex CLI process and immediately returns `STARTED` or `ALREADY_RUNNING`. It then owns process I/O, state, logs, result capture, and the completion marker without using a model.
+Read [references/broker-lanes.md](references/broker-lanes.md) before starting an external CLI. By default, the main session runs `scripts/lane-supervisor.sh start` directly. The supervisor detaches the Grok, Claude, Antigravity, OpenCode, Luna, or Codex CLI process and immediately returns `STARTED` or `ALREADY_RUNNING`. It then owns process I/O, state, logs, result capture, and the completion marker without using a model.
 
 Pass `--title`, `--model-label`, and `--mode read|write` on every supervisor start. These fields power the user-side `codex-orchestrator` Rust dashboard. Keep titles concise and report the actual model and effort in the model label.
 
@@ -126,6 +126,7 @@ Use the cheapest adequate lane:
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
 - Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.6-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
+- OpenCode external lane: use when the user explicitly asks for OpenCode; use its configured model unless the user names one.
 - Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-5.6-luna` with `max` reasoning and Fast service.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
@@ -178,7 +179,9 @@ Before using an external CLI, run a preflight for the requested lane:
 command -v grok && grok --version
 command -v claude && claude --version
 command -v agy && agy --version
+command -v opencode && opencode --version
 command -v codex && codex --version
+command -v node && node --version
 ```
 
 Use only the CLI that is installed, authenticated, and requested or appropriate for the lane. If a CLI is missing or not authenticated, report `STATUS: unavailable` with the exact reason.
@@ -212,23 +215,7 @@ Match permissions to the lane contract:
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
-Edit-capable external commands passed to the supervisor:
-
-```bash
-env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high --permission-mode bypassPermissions
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
-```
-
-Read-only external commands passed to the supervisor:
-
-```bash
-env GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high
-agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions --print-timeout 15m --model gemini-3.6-flash-high
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
-```
+Use the exact read and write command templates in [references/broker-lanes.md](references/broker-lanes.md). Every external lane must use `scripts/agent-output.mjs`, an event-stream output mode, supervisor `--result-source`, and `--ephemeral-watch`.
 
 ### External Agent Lifecycle
 
@@ -256,45 +243,31 @@ When the Rust dashboard is installed, the user may run `codex-orchestrator` to s
 
 For external CLI invocations:
 
-- Let the supervisor write a task-keyed log file; Luna uses the compact event form described below.
+- Route every external CLI through `scripts/agent-output.mjs` and the exact template in [references/broker-lanes.md](references/broker-lanes.md).
+- Keep `lane.log` as a user-facing live stream capped at 2 MiB. It may include thinking text explicitly emitted by the CLI, lifecycle, tool summaries, errors, and response availability.
 - Read at most the final 16 KiB result snapshot after the CLI exits.
 - Keep the state directory, log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
-- Inspect the saved log only after a terminal failure when the bounded result does not explain it.
-- Do not claim access to private model reasoning. Visible evidence means process state, tool output, logs, file diffs, todo/task status, and final text.
+- After success or cancellation, let the supervisor delete `lane.log` and the temporary final file. On failure or interruption, inspect the bounded `diagnostic.log` only when `result.txt` does not explain the problem.
+- Do not claim access to hidden model reasoning. Thinking text means only content the external CLI explicitly emits.
 
-Luna log handling is different only at the output layer. Always run Luna through `scripts/codex-event-log.sh`, pass Codex `--json --output-last-message "$FINAL"`, and pass supervisor `--result-source "$FINAL"` exactly as shown in [references/broker-lanes.md](references/broker-lanes.md). Keep Luna on `gpt-5.6-luna`, `max`, Fast, and the requested permission mode with unrestricted tool count. The compact `lane.log` keeps command names, lifecycle, errors, agent messages, and usage. The complete JSONL stream is compressed after exit for diagnosis. Do not apply this wrapper to Claude.
+The adapter keeps a capped raw event file only while the lane runs. It deletes that file after success and retains a capped `diagnostic.log` after failure or interruption; diagnostics older than seven days are removed. The user-facing watch stream and the final response never share a file.
 
 Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one broker lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
 
-Claude Code note: `claude -p` with text output is often quiet until final output. That is normal and not a completion signal. Use `--model sonnet --effort high` for the Claude lane unless the user asks for a different Claude model or effort such as `max`. Do not rerun a quiet Claude lane or inspect its stream while it is active.
+Claude Code note: use `--output-format stream-json --include-partial-messages --verbose` so the dashboard can display emitted thinking and tool activity. Use `--model sonnet --effort high` unless the user asks for a different Claude model or effort such as `max`.
 
 Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. For headless read-only work, always combine `--mode plan` with `--dangerously-skip-permissions`; plan mode keeps the lane in review posture while automatic approval lets it read files and run inspection commands without an unavailable prompt. Add `--print-timeout 15m` so repository reviews are not cut off by the five-minute default. State the no-edit contract in the spec and inspect the working-directory diff after the lane exits. Before starting or retrying, check whether the same Antigravity task still has a live process or session; do not stack a duplicate lane on top of active work. If the output says a tool required permission and was auto-denied, classify the attempt as invocation setup failure rather than a review result. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
 
+OpenCode note: use `opencode run --format json --thinking`; use `--agent plan` for read-only work and `--agent build --auto` for write work. The adapter excludes verbose tool results from the watch stream and result snapshot.
+
 ### Model Selection
 
-If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity.
+If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity. OpenCode uses its current configured model unless the user names one.
 
 `luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
-The Luna command examples below show producer arguments. The supervisor command must still add the JSON event wrapper, final-message path, raw-event path, and result source from [references/broker-lanes.md](references/broker-lanes.md).
-
-The following examples are external commands passed directly to the supervisor:
-
-```bash
-# User specified a model for write-producing work.
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok -m grok-4.5 --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
-codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
-
-# User did not specify a model; use each lane default for write-producing work.
-GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false grok --no-subagents --permission-mode bypassPermissions --prompt-file "$SPEC" --output-format plain --cwd "$(pwd)"
-claude -p --model sonnet --effort high --permission-mode bypassPermissions < "$SPEC"
-agy --print "$(cat "$SPEC")" --mode accept-edits --dangerously-skip-permissions --model gemini-3.6-flash-high
-codex exec --dangerously-bypass-approvals-and-sandbox --cd "$(pwd)" - < "$SPEC"
-```
+Always use the event-stream and output-adapter commands in [references/broker-lanes.md](references/broker-lanes.md). Do not replace them with plain-text output commands because that merges live observation with the final result and leaves Claude quiet while it works.
 
 Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `gemini-3.6-flash-high` unless the user names another Antigravity model.
 
