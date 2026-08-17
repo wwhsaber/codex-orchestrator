@@ -16,7 +16,7 @@ const adapter = path.join(
   "agent-output.mjs",
 );
 
-function runAdapter(events) {
+function runAdapter(events, format = "opencode") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-agent-output-"));
   const watch = path.join(directory, "lane.log");
   const final = path.join(directory, "final.txt");
@@ -27,7 +27,7 @@ function runAdapter(events) {
     [
       adapter,
       "--format",
-      "opencode",
+      format,
       "--watch",
       watch,
       "--final",
@@ -43,6 +43,7 @@ function runAdapter(events) {
   );
   return {
     run,
+    watch: fs.readFileSync(watch, "utf8"),
     final: fs.readFileSync(final, "utf8"),
     status: fs.readFileSync(`${final}.status`, "utf8"),
     diagnosticExists: fs.existsSync(diagnostic),
@@ -66,6 +67,27 @@ test("accepts text from a normally completed OpenCode step", () => {
   assert.match(result.status, /producer_exit_code=0/);
   assert.match(result.status, /final_available=true/);
   assert.equal(result.diagnosticExists, false);
+});
+
+test("groups Grok thinking deltas into readable lines", () => {
+  const result = runAdapter(
+    [
+      { type: "thinking", text: "This" },
+      { type: "thinking", text: " is" },
+      { type: "thinking", text: " a" },
+      { type: "thinking", text: " large" },
+      { type: "thinking", text: " task." },
+      { type: "tool_use", name: "read_file", input: { path: "src/app.ts" } },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+  );
+
+  assert.equal(result.run.status, 0);
+  assert.match(result.watch, /THINKING This is a large task\.\n/);
+  assert.doesNotMatch(result.watch, /THINKING This\nTHINKING is/);
+  assert.match(result.watch, /TOOL read_file src\/app\.ts/);
+  assert.equal(result.final, "Done");
 });
 
 test("rejects a successful producer exit without final text", () => {

@@ -107,6 +107,8 @@ const emitted = new Set();
 let explicitResult = "";
 let lastAssistant = "";
 let streamedText = "";
+let thinkingBuffer = "";
+let thinkingTimer;
 const openCodeMessages = new Map();
 
 function clip(value, limit = 800) {
@@ -122,6 +124,27 @@ function emitOnce(key, value) {
   if (!value || emitted.has(key)) return;
   emitted.add(key);
   writeWatchLine(value);
+}
+
+function flushThinking() {
+  if (thinkingTimer) {
+    clearTimeout(thinkingTimer);
+    thinkingTimer = undefined;
+  }
+  const text = clip(thinkingBuffer, 8000);
+  thinkingBuffer = "";
+  if (text) writeWatchLine(`THINKING ${text}`);
+}
+
+function queueThinking(value) {
+  thinkingBuffer += value;
+  if (thinkingTimer) clearTimeout(thinkingTimer);
+  if (thinkingBuffer.length >= 8000 || /(?:[.!?。！？]|…)\s*$/.test(thinkingBuffer)) {
+    flushThinking();
+    return;
+  }
+  thinkingTimer = setTimeout(flushThinking, 500);
+  thinkingTimer.unref();
 }
 
 function contentText(value) {
@@ -238,7 +261,7 @@ function toolSummary(event) {
 function handleEvent(event) {
   const name = eventName(event).toLowerCase();
   const thinking = thinkingText(event);
-  if (thinking) writeWatchLine(`THINKING ${clip(thinking, 8000)}`);
+  if (thinking) queueThinking(thinking);
   else if (name.includes("thinking") || name.includes("reasoning")) {
     emitOnce("thinking", "THINKING active");
   }
@@ -246,19 +269,25 @@ function handleEvent(event) {
     emitOnce("session", `SESSION started format=${options.format}`);
   }
   const tool = toolSummary(event);
-  if (tool) writeWatchLine(`TOOL ${tool}`);
+  if (tool) {
+    flushThinking();
+    writeWatchLine(`TOOL ${tool}`);
+  }
   if (name.includes("error") || name.includes("fail")) {
+    flushThinking();
     const detail = clip(event.error?.message ?? event.error ?? event.message ?? name, 1200);
     writeWatchLine(`ERROR ${detail}`);
   }
 
   const delta = deltaText(event);
   if (delta) {
+    flushThinking();
     streamedText += delta;
     emitOnce("response", "RESPONSE streaming");
   }
   const assistant = messageText(event);
   if (assistant) {
+    flushThinking();
     if (options.format === "opencode" && event?.type === "text") {
       const messageId = openCodeMessageId(event);
       if (messageId && event?.part?.id) {
@@ -273,7 +302,10 @@ function handleEvent(event) {
   const openCodeCompleted = openCodeStepText(event);
   if (openCodeCompleted) lastAssistant = openCodeCompleted;
   const completed = finalText(event);
-  if (completed) explicitResult = completed;
+  if (completed) {
+    flushThinking();
+    explicitResult = completed;
+  }
 
   const best = bestResult();
   if (best) fs.writeFileSync(options.final, best);
@@ -319,10 +351,12 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 }
 
 child.on("error", (error) => {
+  flushThinking();
   writeWatchLine(`ERROR ${clip(error.message, 1200)}`);
 });
 
 child.on("close", (code, signal) => {
+  flushThinking();
   const producerExitCode = Number.isInteger(code) ? code : 1;
   const best = bestResult();
   const missingFinal = producerExitCode === 0 && !best;
