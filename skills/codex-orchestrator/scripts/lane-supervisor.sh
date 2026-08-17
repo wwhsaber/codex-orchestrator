@@ -40,6 +40,8 @@ write_state() {
     printf 'pid=%s\n' "$lane_pid"
     printf 'launch_label=%s\n' "$launch_label"
     printf 'controller=%s\n' "$controller_path"
+    printf 'runtime=supervisor\n'
+    printf 'runtime_target=%s\n' "$launch_label"
     printf 'started_at=%s\n' "$started_at"
     printf 'updated_at=%s\n' "$(utc_now)"
     printf 'cwd=%s\n' "$lane_cwd"

@@ -1,28 +1,36 @@
 # External CLI Lanes
 
-Launch external CLI lanes through the bundled non-model supervisor. The main session writes one bounded spec, starts the lane, blocks once in `await`, and verifies the final diff. The supervisor and output adapter use no model tokens.
+Launch external CLI lanes through the bundled runtime selector. The main session writes one bounded spec, starts the lane, blocks once in `await`, and verifies the final diff. Herdr owns the PTY when its server is available; the existing shell supervisor remains available when it is not. Neither runtime uses model tokens.
 
 ## Shared Setup
 
 ```bash
-SUPERVISOR="$SKILL_DIR/scripts/lane-supervisor.sh"
+RUNTIME="$SKILL_DIR/scripts/lane-runtime.sh"
 ADAPTER="$SKILL_DIR/scripts/agent-output.mjs"
-TASK_KEY=$("$SUPERVISOR" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
+TASK_KEY=$("$RUNTIME" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
 STATE_DIR="${TMPDIR:-/tmp}/codex-orchestrator/$TASK_KEY"
 WATCH="$STATE_DIR/lane.log"
 FINAL="$STATE_DIR/final.txt"
 DIAGNOSTIC="$STATE_DIR/diagnostic.log"
 ```
 
+Runtime selection uses `CODEX_ORCHESTRATOR_RUNTIME`:
+
+- `auto` (default): use Herdr when its CLI and server are ready, otherwise use the shell supervisor.
+- `herdr`: require Herdr and fail at launch when its server is unavailable.
+- `supervisor`: always use the bundled shell process runtime.
+
+Herdr must be installed and started outside the skill. On macOS with Homebrew, use `brew install herdr`, then run `herdr server` or `brew services start herdr`. If the background service lacks access to a workspace under `Documents`, start the server from a Terminal or desktop App shell that has that permission. The selector never installs software or starts an interactive TUI.
+
 Validate every spec first:
 
 ```bash
-"$SUPERVISOR" check-spec --spec "$SPEC"
+"$RUNTIME" check-spec --spec "$SPEC"
 ```
 
 The spec should normally be 4-8 KiB and cannot exceed 16 KiB. Pass workspace paths and search anchors instead of conversation history, logs, diffs, or large source blocks.
 
-Every start command must include these supervisor arguments:
+Every start command must include these runtime arguments:
 
 ```bash
 --lane "$LANE" --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
@@ -37,7 +45,7 @@ Every start command must include these supervisor arguments:
 ### Grok
 
 ```bash
-"$SUPERVISOR" start \
+"$RUNTIME" start \
   --lane grok --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
   --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "grok default" --mode read -- \
@@ -53,12 +61,12 @@ For write work add `--permission-mode bypassPermissions`. If the user names a mo
 ### Claude
 
 ```bash
-"$SUPERVISOR" start \
-  --lane claude --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" \
+"$RUNTIME" start \
+  --lane claude --cwd "$CWD" --spec "$SPEC" \
   --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "sonnet / high" --mode read -- \
   node "$ADAPTER" --format claude --watch "$WATCH" --final "$FINAL" \
-  --diagnostic "$DIAGNOSTIC" --forward-stdin -- \
+  --diagnostic "$DIAGNOSTIC" --stdin-file "$SPEC" -- \
   claude -p --model sonnet --effort high --verbose \
   --output-format stream-json --include-partial-messages
 ```
@@ -68,7 +76,7 @@ For write work add `--permission-mode bypassPermissions`.
 ### Gemini Through Antigravity
 
 ```bash
-"$SUPERVISOR" start \
+"$RUNTIME" start \
   --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
   --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "gemini-3.6-flash-high" --mode read -- \
@@ -83,7 +91,7 @@ The prompt must immediately follow `--print`. For write work replace `--mode pla
 ### OpenCode
 
 ```bash
-"$SUPERVISOR" start \
+"$RUNTIME" start \
   --lane opencode --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
   --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "opencode default" --mode read -- \
@@ -97,12 +105,12 @@ For write work use `--agent build --auto`. If the user names an OpenCode model, 
 ### Luna
 
 ```bash
-"$SUPERVISOR" start \
-  --lane luna --cwd "$CWD" --spec "$SPEC" --stdin "$SPEC" \
+"$RUNTIME" start \
+  --lane luna --cwd "$CWD" --spec "$SPEC" \
   --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "gpt-5.6-luna / max / fast" --mode read -- \
   node "$ADAPTER" --format codex --watch "$WATCH" --final "$FINAL" \
-  --diagnostic "$DIAGNOSTIC" --forward-stdin -- \
+  --diagnostic "$DIAGNOSTIC" --stdin-file "$SPEC" -- \
   codex exec --json --output-last-message "$FINAL" \
   --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
   -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
@@ -112,10 +120,10 @@ For write work replace `--sandbox read-only` with `--dangerously-bypass-approval
 
 ## Output Files
 
-The adapter separates three audiences:
+The adapter separates three audiences. Inside a Herdr pane it also mirrors the same bounded live lines to the PTY, so the native Herdr TUI is useful without changing what reaches the main Agent:
 
 - `lane.log`: live user-facing output, capped at 2 MiB. It contains lifecycle, tool summaries, errors, response availability, and thinking text explicitly emitted by the CLI. It never claims access to hidden reasoning.
-- `final.txt`: exact best final response from the event stream. The supervisor copies at most 16 KiB into `result.txt`, which is the only agent output returned by `await` to the main session.
+- `final.txt`: exact best final response from the event stream. The selected runtime copies at most 16 KiB into `result.txt`, which is the only agent output returned by `await` to the main session.
 - `diagnostic.log.tmp`: capped raw event stream while running. It is deleted after success, moved to `diagnostic.log` after failure or interruption, and old diagnostics are removed after seven days.
 
 With `--ephemeral-watch`, `lane.log` and `final.txt` are deleted after terminal state. The terminal dashboard can display them while the lane is active. A failed or interrupted lane retains only the bounded diagnostic needed for investigation.
@@ -127,8 +135,8 @@ This protocol applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Co
 Run `start` and `await` in one shell invocation:
 
 ```bash
-launch_receipt=$("$SUPERVISOR" start START_ARGUMENTS -- COMMAND ARGUMENTS) || exit $?
-"$SUPERVISOR" await --state-dir "$STATE_DIR"
+launch_receipt=$("$RUNTIME" start START_ARGUMENTS -- COMMAND ARGUMENTS) || exit $?
+"$RUNTIME" await --state-dir "$STATE_DIR"
 ```
 
 Keep the successful launch receipt inside the shell. Do not poll state, read logs, inspect diffs, or narrate routine progress while the lane runs. If the command tool yields a live shell session, continue only that session at the longest supported wait. The user can watch `lane.log` through `codex-orchestrator agents` without consuming Codex tokens.
@@ -151,9 +159,9 @@ codex-orchestrator watch <task-id>
 Use `status` only when the user explicitly requests status. Stop a lane only on explicit user action:
 
 ```bash
-"$SUPERVISOR" status --state-dir "$STATE_DIR"
-"$SUPERVISOR" stop --state-dir "$STATE_DIR"
-"$SUPERVISOR" result --state-dir "$STATE_DIR"
+"$RUNTIME" status --state-dir "$STATE_DIR"
+"$RUNTIME" stop --state-dir "$STATE_DIR"
+"$RUNTIME" result --state-dir "$STATE_DIR"
 ```
 
 ## Optional Broker

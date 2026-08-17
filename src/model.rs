@@ -20,6 +20,8 @@ pub struct Task {
     pub mode: String,
     pub pid: u32,
     pub controller: PathBuf,
+    pub runtime: String,
+    pub runtime_target: String,
     pub started_at: String,
     pub updated_at: String,
     pub cwd: PathBuf,
@@ -223,6 +225,8 @@ fn parse_task(state_file: &Path, state_dir: &Path) -> Result<Task> {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_default(),
+        runtime: field(&fields, "runtime"),
+        runtime_target: field(&fields, "runtime_target"),
         started_at: field(&fields, "started_at"),
         updated_at: field(&fields, "updated_at"),
         cwd: path_field("cwd", ""),
@@ -287,9 +291,14 @@ fn task_process_matches(task: &Task, process_commands: Option<&HashMap<u32, Stri
     let Some(process_commands) = process_commands else {
         return true;
     };
-    process_commands
-        .get(&task.pid)
-        .is_some_and(|command| command.contains("_run") && command.contains(&task.id))
+    process_commands.get(&task.pid).is_some_and(|command| {
+        let action = if task.runtime == "herdr" {
+            "_watch"
+        } else {
+            "_run"
+        };
+        command.contains(action) && command.contains(&task.id)
+    })
 }
 
 fn newest_artifact_time(task: &Task) -> Option<DateTime<Utc>> {
@@ -425,6 +434,22 @@ mod tests {
             42,
             "/bin/sh lane-supervisor.sh _run --state-dir /tmp/task-123".to_owned(),
         );
+        assert!(task_process_matches(&task, Some(&process_commands)));
+    }
+
+    #[test]
+    fn accepts_a_herdr_watcher_for_the_task() {
+        let task = Task {
+            id: "task-456".to_owned(),
+            pid: 43,
+            runtime: "herdr".to_owned(),
+            ..Task::default()
+        };
+        let process_commands = HashMap::from([(
+            43,
+            "node herdr-lane.mjs _watch --state-dir /tmp/task-456".to_owned(),
+        )]);
+
         assert!(task_process_matches(&task, Some(&process_commands)));
     }
 }

@@ -92,9 +92,16 @@ fn draw_agent_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn draw_agent_pane(frame: &mut Frame<'_>, area: Rect, app: &App, task: &Task) {
+    let lane_label = if task.runtime.is_empty() {
+        task.lane.clone()
+    } else if task.runtime_target.is_empty() {
+        format!("{}@{}", task.lane, task.runtime)
+    } else {
+        format!("{}@{}[{}]", task.lane, task.runtime, task.runtime_target)
+    };
     let title = format!(
         " {} | {} | {} ",
-        task.lane,
+        fit_text(&lane_label, 24),
         fit_text(task.display_title(), 24),
         task.elapsed_label()
     );

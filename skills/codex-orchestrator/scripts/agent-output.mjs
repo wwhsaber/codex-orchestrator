@@ -10,11 +10,19 @@ const DIAGNOSTIC_LIMIT = 2 * 1024 * 1024;
 
 function usage() {
   process.stderr.write(
-    "Usage: agent-output.mjs --format NAME --watch FILE --final FILE --diagnostic FILE [--forward-stdin] -- COMMAND [ARG...]\n",
+    "Usage: agent-output.mjs --format NAME --watch FILE --final FILE --diagnostic FILE [--forward-stdin|--stdin-file FILE] [--mirror-watch] -- COMMAND [ARG...]\n",
   );
 }
 
-const options = { format: "", watch: "", final: "", diagnostic: "", forwardStdin: false };
+const options = {
+  format: "",
+  watch: "",
+  final: "",
+  diagnostic: "",
+  forwardStdin: false,
+  stdinFile: "",
+  mirrorWatch: false,
+};
 let index = 2;
 for (; index < process.argv.length; index += 1) {
   const argument = process.argv[index];
@@ -26,7 +34,11 @@ for (; index < process.argv.length; index += 1) {
     options.forwardStdin = true;
     continue;
   }
-  if (!["--format", "--watch", "--final", "--diagnostic"].includes(argument)) {
+  if (argument === "--mirror-watch") {
+    options.mirrorWatch = true;
+    continue;
+  }
+  if (!["--format", "--watch", "--final", "--diagnostic", "--stdin-file"].includes(argument)) {
     usage();
     process.exit(2);
   }
@@ -35,7 +47,8 @@ for (; index < process.argv.length; index += 1) {
     usage();
     process.exit(2);
   }
-  options[argument.slice(2)] = value;
+  const optionName = argument === "--stdin-file" ? "stdinFile" : argument.slice(2);
+  options[optionName] = value;
   index += 1;
 }
 
@@ -79,7 +92,13 @@ function createRing(file, limit) {
   };
 }
 
-const writeWatchLine = createRing(options.watch, WATCH_LIMIT);
+const writeWatchRingLine = createRing(options.watch, WATCH_LIMIT);
+const writeWatchLine = (value) => {
+  writeWatchRingLine(value);
+  if (options.mirrorWatch || process.env.HERDR_ENV === "1") {
+    process.stdout.write(value.endsWith("\n") ? value : `${value}\n`);
+  }
+};
 const writeDiagnosticLine = createRing(diagnosticTemp, DIAGNOSTIC_LIMIT);
 const emitted = new Set();
 let explicitResult = "";
@@ -256,7 +275,9 @@ const child = spawn(command, commandArgs, {
   env: process.env,
   stdio: ["pipe", "pipe", "pipe"],
 });
-if (options.forwardStdin) {
+if (options.stdinFile) {
+  fs.createReadStream(options.stdinFile).pipe(child.stdin);
+} else if (options.forwardStdin) {
   process.stdin.pipe(child.stdin);
 } else {
   child.stdin.end();

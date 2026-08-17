@@ -6,7 +6,9 @@ Use it for multi-agent orchestration on high-stakes work: architect-led decompos
 
 ## Dependencies
 
-The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone. External lane output separation requires Node.js 18 or newer for the bundled event adapter.
+The skill works with Codex runtime sub-agents (`worker`, `explorer`) alone. External lane output separation requires Node.js 18 or newer for the bundled event adapter. Herdr is an optional PTY runtime. On macOS, install it with `brew install herdr`, then start its server with `herdr server` or `brew services start herdr`.
+
+The Herdr server must have macOS permission for every workspace directory. If a Homebrew service can create panes but commands hang when entering `Documents`, stop that service and start `herdr server` from a Terminal or desktop App shell that already has access, or grant the service the required Files and Folders permission.
 
 The optional terminal dashboard is a Rust binary. Build it with a current Rust toolchain or install a prebuilt release when one is available.
 
@@ -33,6 +35,8 @@ codex-orchestrator/
 │       └── scripts/
 │           ├── agent-output.mjs
 │           ├── codex-event-log.sh
+│           ├── herdr-lane.mjs
+│           ├── lane-runtime.sh
 │           └── lane-supervisor.sh
 ├── README.md
 └── LICENSE
@@ -117,7 +121,7 @@ codex-orchestrator
 codex-orchestrator agents
 ```
 
-The dashboard reads local supervisor state and logs directly. It does not call a model and does not add content to the main Codex session.
+The dashboard reads local runtime state and logs directly. It does not call a model and does not add content to the main Codex session.
 
 `codex-orchestrator agents` opens a live multi-pane view containing only running Agents. New Agents join automatically, and each pane disappears when its Agent reaches a terminal state. Panes are arranged horizontally first and continue on additional rows when the terminal cannot keep every pane readable on one row. The command remains open while no Agents are running so it can pick up future work; press `q` or `Esc` to exit.
 
@@ -152,7 +156,9 @@ Each `watch` process is an independent read-only observer until you explicitly c
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
 - Supports optional external CLI lanes such as `grok`, `claude`, `agy`, `opencode`, `luna`, and `codex` when those tools are installed and authenticated.
-- Starts each external CLI lane directly through a non-model supervisor by default.
+- Starts each external CLI lane through a non-model runtime selector.
+- Uses Herdr for persistent PTYs, workspaces, native windows, and event waits when its server is ready.
+- Keeps the shell supervisor available when Herdr is not in use.
 - Keeps Broker sub-agents optional for users who explicitly want visible launcher cards.
 - Moves process waiting and logging to the supervisor so idle lanes consume no Codex tokens.
 - Provides a Rust terminal dashboard for all Lane states, auto-updating multi-Agent logs, results, and explicit stopping.
@@ -171,23 +177,25 @@ This execution rule does not silently rewrite existing repository CI policy. CI 
 The main Codex session writes the spec and starts each external CLI lane directly:
 
 ```text
-Main Agent -> shell supervisor -> grok
-Main Agent -> shell supervisor -> claude
-Main Agent -> shell supervisor -> agy / Gemini
-Main Agent -> shell supervisor -> opencode
-Main Agent -> shell supervisor -> codex / GPT-5.6 Luna Max / Fast
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> grok
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> claude
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> agy / Gemini
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> opencode
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> codex / GPT-5.6 Luna Max / Fast
 ```
 
-The main session uses one shell invocation to run supervisor `start` and continue directly into `await`. A successful `STARTED` or `ALREADY_RUNNING` receipt stays inside the shell, so it does not create another model step. The shell supervisor waits for the external process, writes a small state snapshot and completion marker, and stores at most the final 16 KiB in `result.txt`. The event adapter writes a separate live view and final response. Neither process uses a model or consumes Codex tokens. The main Codex session still judges completed results and runs verification.
+`skills/codex-orchestrator/scripts/lane-runtime.sh` selects the backend. Its default `auto` mode uses Herdr only when the CLI and server are ready. Set `CODEX_ORCHESTRATOR_RUNTIME=herdr` to require Herdr or `CODEX_ORCHESTRATOR_RUNTIME=supervisor` to use the original shell runtime. An explicit Herdr request fails clearly rather than installing or starting software without permission.
 
-Supervisor and producer settings are intentionally separate:
+The main session uses one shell invocation to run runtime `start` and continue directly into `await`. A successful `STARTED` or `ALREADY_RUNNING` receipt stays inside the shell, so it does not create another model step. With Herdr, the external Agent runs in a real Herdr PTY and a no-model watcher blocks on one anchored completion event. The runtime stores at most the final 16 KiB in `result.txt`; the event adapter writes a separate live view and final response. These runtime processes use no model tokens. The main Codex session still judges completed results and runs verification.
+
+Runtime and producer settings are intentionally separate:
 
 ```text
-Lane supervisor: shell process, no model
+Lane runtime: Herdr or shell process, no model
 Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
-The shell waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
+The runtime waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
 
 In another terminal, `codex-orchestrator` can display every Lane and follow its output. This user-side observer reads local files only and does not alter the main Agent's silent wait.
 
@@ -240,7 +248,7 @@ default_wait_timeout_ms = 30000
 max_wait_timeout_ms = 900000
 ```
 
-The 30-second value remains the general default. In optional Broker mode, Codex Orchestrator may call `agents.wait(timeout_ms=900000)` once for launcher receipts. External execution continues under `skills/codex-orchestrator/scripts/lane-supervisor.sh`. See `skills/codex-orchestrator/references/broker-lanes.md` for direct launch commands and the optional Broker contract.
+The 30-second value remains the general default. In optional Broker mode, Codex Orchestrator may call `agents.wait(timeout_ms=900000)` once for launcher receipts. External execution continues under `skills/codex-orchestrator/scripts/lane-runtime.sh`. See `skills/codex-orchestrator/references/broker-lanes.md` for direct launch commands and the optional Broker contract.
 
 For Grok:
 
