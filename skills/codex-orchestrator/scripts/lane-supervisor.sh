@@ -273,6 +273,11 @@ command_key() {
 command_start() {
   shift
 
+  if [ "${CODEX_ORCHESTRATOR_SELECTOR_ACTIVE-}" != "1" ]; then
+    printf '%s\n' 'Start lanes through lane-runtime.sh, not lane-supervisor.sh' >&2
+    exit 2
+  fi
+
   lane_name=
   lane_cwd=
   spec_file=

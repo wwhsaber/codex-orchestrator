@@ -71,6 +71,12 @@ Read [references/broker-lanes.md](references/broker-lanes.md) before starting an
 
 Do not silently install or start Herdr. When the user explicitly requires the Herdr runtime and it is unavailable, stop and ask whether to install/start Herdr or use the shell supervisor. Set `CODEX_ORCHESTRATOR_RUNTIME=herdr` to require Herdr, `supervisor` to require the shell process runtime, or `auto` for normal selection.
 
+For a normal launch, leave `CODEX_ORCHESTRATOR_RUNTIME` unset. Never force `supervisor` merely for a retry, review, or diagnostic run. Use it only when the user explicitly requests that runtime or a recorded Herdr launch failure makes `auto` unusable. When Herdr is ready, explicit supervisor mode also requires `CODEX_ORCHESTRATOR_SUPERVISOR_REASON=user_requested` or `herdr_launch_failed`; never invent either reason. Keep the original runtime on retries unless the user approves a change.
+
+Compute every state directory with `scripts/lane-runtime.sh state-dir`. Never assemble the path manually and never hardcode `/tmp/codex-orchestrator`. The command honors `CODEX_ORCHESTRATOR_STATE_ROOT`, then `${TMPDIR:-/tmp}`, and `start` rejects a mismatched directory.
+
+Never invoke `lane-supervisor.sh start` directly. It is a private backend and rejects starts that do not come through `lane-runtime.sh`. Runtime inspection and lifecycle commands remain routed through `lane-runtime.sh` as well.
+
 Pass `--title`, `--model-label`, and `--mode read|write` on every runtime start. These fields power the user-side `codex-orchestrator` Rust dashboard. Keep titles concise and report the actual model and effort in the model label.
 
 Do not spawn a Broker merely to run the runtime command. Direct launch avoids an extra Codex inference, sub-agent scheduling, and receipt handoff. The main session still owns the spec, routing, silent wait, diff review, and verification.
@@ -98,8 +104,8 @@ The 30-second value is the general default only. When optional Brokers are used,
 
 Optional Broker duties:
 
-- Receive only lane metadata, cwd, spec path, state directory, exact supervisor start command, and expected mode.
-- Run the supplied supervisor start command exactly once.
+- Receive only lane metadata, cwd, spec path, state directory, exact runtime-selector start command, and expected mode.
+- Run the supplied runtime-selector start command exactly once.
 - Return the launch receipt and finish immediately.
 - Never run the external CLI directly.
 - Never wait for the external CLI, inspect state, or read routine output after launch.
@@ -116,7 +122,7 @@ FAILED_TO_START lane=<name> reason=<short reason>
 
 Give an optional Broker file paths, not parent history or copied spec contents. Its prompt must explicitly say: do not analyze the task, do not rewrite the spec, do not narrate progress, do not read any lane artifacts after launch, do not wait for completion, and finish immediately after the launch receipt.
 
-The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after supervisor `await` returns, inspects diffs, and runs verification. When optional Broker mode is active, a completed Broker card is launch evidence only; it is not external-task completion evidence.
+The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after runtime `await` returns, inspects diffs, and runs verification. When optional Broker mode is active, a completed Broker card is launch evidence only; it is not external-task completion evidence.
 
 Run direct `start` and `await` inside one shell invocation. Capture the successful launch receipt inside the shell instead of returning it to the main model; if launch fails, return the error immediately. The `await` command blocks without model output and returns terminal state plus bounded result. Do not poll runtime state, `done`, logs, diffs, or session files. Do not say that you are continuously monitoring. If the shell tool yields, continue only the same shell session with the longest supported wait and no commentary. For multiple lanes, start every lane and await all of them inside one blocking shell invocation. If optional Brokers were requested, wait once for their launch receipts before the same `await` step.
 
@@ -173,7 +179,7 @@ External CLIs are optional. The skill is fully functional with local Codex work 
 
 When this skill is active and delegation is needed, external CLI lanes are the preferred delegated-agent producers. Use Grok first, Claude second, and Antigravity third unless the user names a different lane, explicitly asks for Codex sub-agents, or the work should stay local.
 
-Use direct supervisor launch for every external lane, regardless of expected duration. Use optional Broker mode only when the user explicitly asks for it.
+Use direct runtime-selector launch for every external lane, regardless of expected duration. Its default `auto` mode prefers a ready Herdr server. Use optional Broker mode only when the user explicitly asks for it.
 
 Before using an external CLI, run a preflight for the requested lane:
 
@@ -217,7 +223,7 @@ Match permissions to the lane contract:
 - If the lane reports it cannot edit, stop and rerun the same spec with edit permission instead of asking it to describe the patch.
 - For Grok write-producing lanes, use `--permission-mode bypassPermissions` and `--no-subagents` unless the user explicitly asks Grok to run its own subagents. Do not combine `--check` with `--no-subagents`; those flags are mutually exclusive.
 
-Use the exact read and write command templates in [references/broker-lanes.md](references/broker-lanes.md). Every external lane must use `scripts/agent-output.mjs`, an event-stream output mode, supervisor `--result-source`, and `--ephemeral-watch`.
+Use the exact read and write command templates in [references/broker-lanes.md](references/broker-lanes.md). Every external lane must use `scripts/agent-output.mjs`, an event-stream output mode, runtime `--result-source`, and `--ephemeral-watch`.
 
 ### External Agent Lifecycle
 
@@ -239,7 +245,7 @@ If the user assigned implementation to a named external agent, that agent remain
 
 ### Visible Logs
 
-Keep external output outside the main model context. Return the supervisor's log path to the user so they can watch it in a terminal without making the main session read it.
+Keep external output outside the main model context. Return the runtime's log path to the user so they can watch it in a terminal without making the main session read it.
 
 When the Rust dashboard is installed, the user may run `codex-orchestrator` to see all Lanes, `codex-orchestrator agents` for an auto-updating horizontal-first grid of every running Agent, or `codex-orchestrator watch <task-id>` in separate terminal windows. Finished panes leave the Agents view automatically and newly started lanes enter it automatically. These commands are local file observers and do not consume Codex tokens. Do not run the interactive TUI through a model tool call, scrape its screen, or summarize its routine output.
 
@@ -283,8 +289,8 @@ For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file and run `check-spec`.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
-3. Compute the supervisor task key and state directory, plus a concise title, accurate model label, and read/write mode.
-4. Run the exact supervisor start command and `await` in one main-session shell invocation.
+3. Compute the state directory with `lane-runtime.sh state-dir`, plus a concise title, accurate model label, and read/write mode.
+4. Run the exact runtime-selector start command and `await` in one main-session shell invocation.
 5. Keep `STARTED` or `ALREADY_RUNNING` inside the shell; return a launch error immediately.
 6. For multiple lanes, start all of them before awaiting them in that same shell invocation.
 7. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.

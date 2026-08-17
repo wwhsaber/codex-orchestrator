@@ -194,6 +194,8 @@ Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> codex / GPT-5.6
 
 `skills/codex-orchestrator/scripts/lane-runtime.sh` selects the backend. Its default `auto` mode uses Herdr only when the CLI and server are ready. Set `CODEX_ORCHESTRATOR_RUNTIME=herdr` to require Herdr or `CODEX_ORCHESTRATOR_RUNTIME=supervisor` to use the original shell runtime. An explicit Herdr request fails clearly rather than installing or starting software without permission.
 
+Normal launches leave `CODEX_ORCHESTRATOR_RUNTIME` unset, which keeps Herdr first. Explicit `supervisor` mode is reserved for a user request or a confirmed Herdr launch failure. When Herdr is ready, the selector also requires `CODEX_ORCHESTRATOR_SUPERVISOR_REASON=user_requested` or `herdr_launch_failed`, which prevents stale sessions from silently overriding `auto`. State directories are computed by `lane-runtime.sh state-dir`; the command uses `CODEX_ORCHESTRATOR_STATE_ROOT` or the platform temporary directory and prevents a lane from disappearing into a separately hardcoded `/tmp` tree.
+
 The main session uses one shell invocation to run runtime `start` and continue directly into `await`. A successful `STARTED` or `ALREADY_RUNNING` receipt stays inside the shell, so it does not create another model step. With Herdr, the external Agent runs in a real Herdr PTY and a no-model watcher blocks on one anchored completion event. The runtime stores at most the final 16 KiB in `result.txt`; the event adapter writes a separate live view and final response. These runtime processes use no model tokens. The main Codex session still judges completed results and runs verification.
 
 Runtime and producer settings are intentionally separate:
@@ -211,7 +213,7 @@ A Terra Low Broker is available only as an explicit UI mode. When requested, it 
 
 ## Delegated Context Budget
 
-Delegated specs should normally be 4-8 KiB and cannot exceed 16 KiB. The supervisor rejects oversized specs in `check-spec`, `key`, and `start`. Specs contain the objective, exact workspace paths, interfaces, constraints, and verification command; they do not contain full conversation history, logs, diffs, or large source blocks.
+Delegated specs should normally be 4-8 KiB and cannot exceed 16 KiB. The runtime rejects oversized specs in `check-spec`, `key`, and `start`. Specs contain the objective, exact workspace paths, interfaces, constraints, and verification command; they do not contain full conversation history, logs, diffs, or large source blocks.
 
 Codex worker and explorer sub-agents always use `fork_turns="none"` with only the validated spec. External CLI lanes also receive only that spec and inspect referenced workspace files as needed.
 
@@ -219,7 +221,7 @@ Codex worker and explorer sub-agents always use `fork_turns="none"` with only th
 
 If you specify a model, the skill passes the model flag to that CLI. The exact read-only and write-producing event-stream commands are in `skills/codex-orchestrator/references/broker-lanes.md`.
 
-For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one supervisor lane. Do not combine Grok `--check` with `--no-subagents`.
+For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one runtime lane. Do not combine Grok `--check` with `--no-subagents`.
 
 For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Headless read-only reviews should use `--mode plan --dangerously-skip-permissions --print-timeout 15m`: plan mode keeps review posture, while automatic approval permits file reads and inspection commands when no permission prompt can be shown. Confirm afterward that Gemini did not change the working-directory diff. Before retrying, confirm the same Antigravity process or session is not still active. If Gemini reports an auto-denied tool permission, or explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun once with the corrected prompt-first command form.
 

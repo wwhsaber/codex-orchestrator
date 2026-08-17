@@ -7,8 +7,7 @@ Launch external CLI lanes through the bundled runtime selector. The main session
 ```bash
 RUNTIME="$SKILL_DIR/scripts/lane-runtime.sh"
 ADAPTER="$SKILL_DIR/scripts/agent-output.mjs"
-TASK_KEY=$("$RUNTIME" key --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
-STATE_DIR="${TMPDIR:-/tmp}/codex-orchestrator/$TASK_KEY"
+STATE_DIR=$("$RUNTIME" state-dir --lane "$LANE" --cwd "$CWD" --spec "$SPEC")
 WATCH="$STATE_DIR/lane.log"
 FINAL="$STATE_DIR/final.txt"
 DIAGNOSTIC="$STATE_DIR/diagnostic.log"
@@ -19,6 +18,12 @@ Runtime selection uses `CODEX_ORCHESTRATOR_RUNTIME`:
 - `auto` (default): use Herdr when its CLI and server are ready, otherwise use the shell supervisor.
 - `herdr`: require Herdr and fail at launch when its server is unavailable.
 - `supervisor`: always use the bundled shell process runtime.
+
+Do not set `CODEX_ORCHESTRATOR_RUNTIME` for a normal launch. The unset value is `auto`, so a ready Herdr server is preferred. Set `supervisor` only when the user explicitly requests it or a recorded Herdr launch failure makes `auto` unusable. When Herdr is ready, explicit supervisor mode also requires `CODEX_ORCHESTRATOR_SUPERVISOR_REASON=user_requested` or `herdr_launch_failed`; do not invent either reason. A retry keeps the runtime used by the original task unless the user approves a change.
+
+`state-dir` is the only supported way to compute `STATE_DIR`. It uses `CODEX_ORCHESTRATOR_STATE_ROOT` when set and otherwise uses `${TMPDIR:-/tmp}/codex-orchestrator`. Task keys stay stable when the selected runtime changes. Do not assemble this path manually or hardcode `/tmp/codex-orchestrator`; `start` rejects a directory that differs from the runtime calculation.
+
+`lane-runtime.sh` is the only supported launch entry point. Do not call `lane-supervisor.sh start` directly; that backend rejects direct starts.
 
 Herdr must be installed and started outside the skill. On macOS with Homebrew, use `brew install herdr`, then run `herdr server` or `brew services start herdr`. If the background service lacks access to a workspace under `Documents`, start the server from a Terminal or desktop App shell that has that permission. The selector never installs software or starts an interactive TUI.
 
@@ -169,7 +174,7 @@ Use `status` only when the user explicitly requests status. Stop a lane only on 
 
 ## Optional Broker
 
-Use a Broker only when the user explicitly asks for a visible launcher card. One Terra Low Broker starts one supplied supervisor command and exits immediately after `STARTED`, `ALREADY_RUNNING`, or a short launch error. It must not inspect the spec, wait, read lane files, or judge the result.
+Use a Broker only when the user explicitly asks for a visible launcher card. One Terra Low Broker starts one supplied runtime-selector command and exits immediately after `STARTED`, `ALREADY_RUNNING`, or a short launch error. It must not inspect the spec, wait, read lane files, or judge the result.
 
 ## Scoped Verification
 
