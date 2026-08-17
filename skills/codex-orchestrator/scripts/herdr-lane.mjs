@@ -113,7 +113,15 @@ function processExists(pid) {
 function finishFiles(stateDir, state, exitCode, message) {
   const fields = readFields(path.join(stateDir, "state"));
   const source = fields.result_source;
+  const sourceStatus = source ? `${source}.status` : "";
   const result = fields.result || path.join(stateDir, "result.txt");
+  const adapterStatus = sourceStatus && fs.existsSync(sourceStatus) ? readFields(sourceStatus) : {};
+  const producerExitCode = adapterStatus.producer_exit_code ?? "";
+  const finalAvailable = adapterStatus.final_available ?? "";
+  if (producerExitCode === "0" && finalAvailable === "false") {
+    state = "failed";
+    message = "missing_final";
+  }
   let content = "";
   if (source && fs.existsSync(source)) content = fs.readFileSync(source);
   if (!content.length) {
@@ -130,21 +138,27 @@ function finishFiles(stateDir, state, exitCode, message) {
     exit_code: exitCode,
     result_truncated: content.length > RESULT_LIMIT ? "true" : "false",
     log_bytes: fs.existsSync(fields.log) ? fs.statSync(fields.log).size : 0,
+    producer_exit_code: producerExitCode,
+    final_available: finalAvailable,
     message,
   });
   fs.writeFileSync(fields.done || path.join(stateDir, "done"), "");
 
   if (fields.ephemeral_watch === "true") {
     const diagnosticTemp = `${fields.diagnostic}.tmp`;
-    if (state === "interrupted" && fs.existsSync(diagnosticTemp) && !fs.existsSync(fields.diagnostic)) {
+    if (
+      (state === "failed" || state === "interrupted") &&
+      fs.existsSync(diagnosticTemp) &&
+      !fs.existsSync(fields.diagnostic)
+    ) {
       fs.renameSync(diagnosticTemp, fields.diagnostic);
     } else {
       fs.rmSync(diagnosticTemp, { force: true });
     }
-    for (const file of [fields.log, source]) {
-      if (file && file !== result) fs.rmSync(file, { force: true });
-    }
     if (state === "exited" || state === "cancelled") {
+      for (const file of [fields.log, source, sourceStatus]) {
+        if (file && file !== result) fs.rmSync(file, { force: true });
+      }
       fs.rmSync(fields.supervisor_log, { force: true });
     }
   }
@@ -289,6 +303,8 @@ function commandStart(args) {
     diagnostic,
     done,
     exit_code: "",
+    producer_exit_code: "",
+    final_available: "",
     log_bytes: 0,
     result_truncated: "false",
     message: "",

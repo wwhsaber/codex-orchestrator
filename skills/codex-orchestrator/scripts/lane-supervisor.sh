@@ -54,6 +54,8 @@ write_state() {
     printf 'diagnostic=%s\n' "$diagnostic_file"
     printf 'done=%s\n' "$done_file"
     printf 'exit_code=%s\n' "$exit_code"
+    printf 'producer_exit_code=%s\n' "${producer_exit_code-}"
+    printf 'final_available=%s\n' "${final_available-}"
     printf 'log_bytes=%s\n' "$log_bytes"
     printf 'result_truncated=%s\n' "$result_truncated"
     printf 'message=%s\n' "$state_message"
@@ -80,18 +82,21 @@ finish_output_files() {
     return
   fi
   diagnostic_temp="${diagnostic_file}.tmp"
-  if [ "$lane_state" = "interrupted" ] && [ -f "$diagnostic_temp" ] \
+  if { [ "$lane_state" = "failed" ] || [ "$lane_state" = "interrupted" ]; } \
+    && [ -f "$diagnostic_temp" ] \
     && [ ! -f "$diagnostic_file" ]; then
     mv "$diagnostic_temp" "$diagnostic_file"
   else
     rm -f "$diagnostic_temp"
   fi
-  rm -f "$log_file"
-  if [ -n "$result_source_file" ] && [ "$result_source_file" != "$result_file" ]; then
-    rm -f "$result_source_file"
-  fi
   case "$lane_state" in
-    exited|cancelled) rm -f "$supervisor_log_file" ;;
+    exited|cancelled)
+      rm -f "$log_file"
+      if [ -n "$result_source_file" ] && [ "$result_source_file" != "$result_file" ]; then
+        rm -f "$result_source_file" "${result_source_file}.status"
+      fi
+      rm -f "$supervisor_log_file"
+      ;;
   esac
 }
 
@@ -565,6 +570,12 @@ command_run() {
   command_exit=$?
   set -e
 
+  producer_exit_code=
+  final_available=
+  if [ -n "$result_source_file" ] && [ -f "${result_source_file}.status" ]; then
+    producer_exit_code=$(read_field producer_exit_code "${result_source_file}.status")
+    final_available=$(read_field final_available "${result_source_file}.status")
+  fi
   log_bytes=$(wc -c < "$log_file" | tr -d ' ')
   if [ "$ephemeral_watch" = "true" ] && { [ -z "$result_source_file" ] \
     || [ ! -s "$result_source_file" ]; }; then
@@ -597,6 +608,9 @@ command_run() {
     lane_state=cancelled
     exit_code=130
     state_message=user_stopped
+  elif [ "$producer_exit_code" = "0" ] && [ "$final_available" = "false" ]; then
+    lane_state=failed
+    state_message=missing_final
   elif [ "$command_exit" -eq 0 ]; then
     lane_state=exited
     state_message=completed

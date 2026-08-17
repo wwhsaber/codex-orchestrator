@@ -23,7 +23,7 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 4. For every external CLI lane, use one main-session shell invocation that runs the bundled runtime selector `start` command and then enters `await`.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
 6. Keep the launch receipt inside that shell invocation so the main model resumes only after `await` returns.
-7. When `await` returns terminal state and result, review changes before integrating them.
+7. When `await` returns terminal state and result, require `final_available=true`, then review changes before integrating them. Producer exit code `0` alone is not completion evidence.
 8. Run the scoped verification command yourself.
 9. Report only what the diff and verification evidence support.
 
@@ -250,10 +250,10 @@ For external CLI invocations:
 - Read at most the final 16 KiB result snapshot after the CLI exits.
 - Keep the state directory, log path, prompt path, process ID, and exit status in the final lane report.
 - Do not read, restate, or summarize routine log output.
-- After success or cancellation, let the supervisor delete `lane.log` and the temporary final file. On failure or interruption, inspect the bounded `diagnostic.log` only when `result.txt` does not explain the problem.
+- After success or cancellation, let the runtime delete `lane.log`, the temporary final file, and its status file. On failure or interruption, inspect the retained bounded artifacts only when `result.txt` does not explain the problem.
 - Do not claim access to hidden model reasoning. Thinking text means only content the external CLI explicitly emits.
 
-The adapter keeps a capped raw event file only while the lane runs. It deletes that file after success and retains a capped `diagnostic.log` after failure or interruption; diagnostics older than seven days are removed. The user-facing watch stream and the final response never share a file.
+The adapter keeps a capped raw event file while the lane runs. It deletes that file after success and retains a capped `diagnostic.log` after failure or interruption; diagnostics older than seven days are removed. Missing final output is a semantic failure even when the producer exits with code `0`. The user-facing watch stream and the final response never share a file.
 
 Grok note: inherited MCP startup warnings are not terminal evidence if the lane prints task progress or a final response. Prefer disabling inherited Cursor/Claude MCP discovery for code tasks. Prefer `--no-subagents` so Grok remains a single external producer under one broker lane. Do not report `STATUS: unavailable` from MCP warnings alone. Quiet output is not enough to stop it.
 

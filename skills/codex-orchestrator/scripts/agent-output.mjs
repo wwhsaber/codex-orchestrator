@@ -7,6 +7,7 @@ import readline from "node:readline";
 
 const WATCH_LIMIT = 2 * 1024 * 1024;
 const DIAGNOSTIC_LIMIT = 2 * 1024 * 1024;
+const MISSING_FINAL_EXIT = 65;
 
 function usage() {
   process.stderr.write(
@@ -63,9 +64,11 @@ for (const file of [options.watch, options.final, options.diagnostic]) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
 }
 const diagnosticTemp = `${options.diagnostic}.tmp`;
+const statusFile = `${options.final}.status`;
 fs.writeFileSync(options.watch, "");
 fs.writeFileSync(options.final, "");
 fs.writeFileSync(diagnosticTemp, "");
+fs.writeFileSync(statusFile, "");
 try {
   fs.unlinkSync(options.diagnostic);
 } catch (error) {
@@ -105,7 +108,6 @@ let explicitResult = "";
 let lastAssistant = "";
 let streamedText = "";
 const openCodeMessages = new Map();
-let latestOpenCodeMessage = "";
 
 function clip(value, limit = 800) {
   const clean = String(value ?? "")
@@ -191,6 +193,23 @@ function eventName(event) {
   return String(event?.type ?? event?.event?.type ?? event?.sessionUpdate ?? "");
 }
 
+function openCodeMessageId(event) {
+  return event?.part?.messageID ?? event?.messageID ?? event?.part?.id ?? "";
+}
+
+function openCodeStepText(event) {
+  if (options.format !== "opencode") return "";
+  if (event?.type !== "step_finish" && event?.part?.type !== "step-finish") return "";
+  const reason = String(event?.part?.reason ?? event?.reason ?? "");
+  if (!reason || reason === "tool-calls") return "";
+  const parts = openCodeMessages.get(openCodeMessageId(event));
+  return parts ? [...parts.values()].join("\n") : "";
+}
+
+function bestResult() {
+  return explicitResult || lastAssistant || (options.format === "opencode" ? "" : streamedText);
+}
+
 function toolSummary(event) {
   const candidates = [
     event?.item,
@@ -240,21 +259,23 @@ function handleEvent(event) {
   }
   const assistant = messageText(event);
   if (assistant) {
-    if (event?.type === "text" && event?.part?.id) {
-      const messageId = event.part.messageID ?? event.messageID ?? event.part.id;
-      if (!openCodeMessages.has(messageId)) openCodeMessages.set(messageId, new Map());
-      openCodeMessages.get(messageId).set(event.part.id, assistant);
-      latestOpenCodeMessage = messageId;
-      lastAssistant = [...openCodeMessages.get(latestOpenCodeMessage).values()].join("\n");
+    if (options.format === "opencode" && event?.type === "text") {
+      const messageId = openCodeMessageId(event);
+      if (messageId && event?.part?.id) {
+        if (!openCodeMessages.has(messageId)) openCodeMessages.set(messageId, new Map());
+        openCodeMessages.get(messageId).set(event.part.id, assistant);
+      }
     } else {
       lastAssistant = assistant;
     }
     emitOnce("assistant", "RESPONSE available");
   }
+  const openCodeCompleted = openCodeStepText(event);
+  if (openCodeCompleted) lastAssistant = openCodeCompleted;
   const completed = finalText(event);
   if (completed) explicitResult = completed;
 
-  const best = explicitResult || lastAssistant || streamedText;
+  const best = bestResult();
   if (best) fs.writeFileSync(options.final, best);
 }
 
@@ -302,21 +323,37 @@ child.on("error", (error) => {
 });
 
 child.on("close", (code, signal) => {
-  const exitCode = Number.isInteger(code) ? code : 1;
-  const best = explicitResult || lastAssistant || streamedText;
+  const producerExitCode = Number.isInteger(code) ? code : 1;
+  const best = bestResult();
+  const missingFinal = producerExitCode === 0 && !best;
+  const adapterExitCode = missingFinal ? MISSING_FINAL_EXIT : producerExitCode;
   if (best) {
     fs.writeFileSync(options.final, best);
-  } else if (exitCode !== 0) {
+  } else if (producerExitCode !== 0) {
     fs.writeFileSync(
       options.final,
-      `STATUS: failed\nAgent process ended with code ${exitCode}${signal ? ` (${signal})` : ""}.`,
+      `STATUS: failed\nAgent process ended with code ${producerExitCode}${signal ? ` (${signal})` : ""}.`,
     );
   } else {
-    fs.writeFileSync(options.final, "STATUS: completed\nThe agent emitted no final response.");
+    fs.writeFileSync(
+      options.final,
+      "STATUS: unavailable\nProducer exited successfully but emitted no usable final response.",
+    );
   }
 
-  writeWatchLine(`FINISHED code=${exitCode}${signal ? ` signal=${signal}` : ""}`);
-  if (exitCode === 0) {
+  fs.writeFileSync(
+    statusFile,
+    [
+      `producer_exit_code=${producerExitCode}`,
+      `adapter_exit_code=${adapterExitCode}`,
+      `final_available=${best ? "true" : "false"}`,
+      "",
+    ].join("\n"),
+  );
+  writeWatchLine(
+    `FINISHED code=${adapterExitCode} producer_code=${producerExitCode}${signal ? ` signal=${signal}` : ""}`,
+  );
+  if (adapterExitCode === 0) {
     try {
       fs.unlinkSync(diagnosticTemp);
     } catch (error) {
@@ -329,5 +366,5 @@ child.on("close", (code, signal) => {
       if (error.code !== "ENOENT") throw error;
     }
   }
-  process.exit(exitCode);
+  process.exit(adapterExitCode);
 });

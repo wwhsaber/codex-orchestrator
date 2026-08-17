@@ -38,6 +38,8 @@ codex-orchestrator/
 │           ├── herdr-lane.mjs
 │           ├── lane-runtime.sh
 │           └── lane-supervisor.sh
+├── tests/
+│   └── agent-output.test.mjs
 ├── README.md
 └── LICENSE
 ```
@@ -172,6 +174,12 @@ The orchestrator defaults to the narrowest useful verification for the current c
 
 This execution rule does not silently rewrite existing repository CI policy. CI workflow scope changes remain an explicit project decision.
 
+Run the focused output-contract tests with:
+
+```bash
+node --test tests/agent-output.test.mjs
+```
+
 ## External CLI Mode
 
 The main Codex session writes the spec and starts each external CLI lane directly:
@@ -195,7 +203,7 @@ Lane runtime: Herdr or shell process, no model
 Luna producer: GPT-5.6 Luna Max, Fast service
 ```
 
-The runtime waits for `done` without model output and returns terminal state plus the bounded result once. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
+The runtime waits for `done` without model output and returns terminal state plus the bounded result once. A producer exit code of `0` counts as success only when the adapter also observed a usable final response. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
 
 In another terminal, `codex-orchestrator` can display every Lane and follow its output. This user-side observer reads local files only and does not alter the main Agent's silent wait.
 
@@ -268,9 +276,9 @@ For Antigravity:
 agy models
 ```
 
-For external lanes, use the supervisor's `lane.log`. The user may watch that file outside the main model context. It shows lifecycle, concise tool activity, errors, and thinking text explicitly emitted by the CLI. Codex does not read or summarize routine output; after completion it receives the bounded `result.txt` once.
+For external lanes, use the runtime's `lane.log`. The user may watch that file outside the main model context. It shows lifecycle, concise tool activity, errors, and thinking text explicitly emitted by the CLI. Codex does not read or summarize routine output; after completion it receives the bounded `result.txt` once.
 
-The output adapter caps `lane.log` at 2 MiB and keeps the exact final response in a separate temporary file. After success or cancellation, both temporary files are deleted. A failed or interrupted lane retains a capped raw `diagnostic.log`; diagnostics older than seven days are removed. This applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI.
+The output adapter caps `lane.log` at 2 MiB and keeps the exact final response in a separate temporary file. It also records the producer exit code and final availability in a small status file. After success or cancellation, temporary output is deleted. A failed or interrupted lane retains capped live and raw diagnostic evidence; diagnostics older than seven days are removed. This applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI.
 
 For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Use `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 

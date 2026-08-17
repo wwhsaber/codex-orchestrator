@@ -124,9 +124,12 @@ The adapter separates three audiences. Inside a Herdr pane it also mirrors the s
 
 - `lane.log`: live user-facing output, capped at 2 MiB. It contains lifecycle, tool summaries, errors, response availability, and thinking text explicitly emitted by the CLI. It never claims access to hidden reasoning.
 - `final.txt`: exact best final response from the event stream. The selected runtime copies at most 16 KiB into `result.txt`, which is the only agent output returned by `await` to the main session.
+- `final.txt.status`: producer exit code, adapter exit code, and whether a usable final response was observed. Producer exit code `0` with `final_available=false` becomes `failed/missing_final`, not a successful review.
 - `diagnostic.log.tmp`: capped raw event stream while running. It is deleted after success, moved to `diagnostic.log` after failure or interruption, and old diagnostics are removed after seven days.
 
-With `--ephemeral-watch`, `lane.log` and `final.txt` are deleted after terminal state. The terminal dashboard can display them while the lane is active. A failed or interrupted lane retains only the bounded diagnostic needed for investigation.
+With `--ephemeral-watch`, `lane.log`, `final.txt`, and its status file are deleted after success or cancellation. The terminal dashboard can display live output while the lane is active. A failed or interrupted lane retains the bounded live log, final source, status file, and diagnostic needed for investigation.
+
+For OpenCode, a `text` event is live output until its message reaches a non-tool-calls `step_finish`. Intermediate narration before another tool call must never become the final review.
 
 This protocol applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI. Codex runtime worker and explorer transcripts remain owned by the Codex runtime rather than these files.
 
