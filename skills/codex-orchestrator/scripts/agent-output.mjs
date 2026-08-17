@@ -10,17 +10,21 @@ const DIAGNOSTIC_LIMIT = 2 * 1024 * 1024;
 
 function usage() {
   process.stderr.write(
-    "Usage: agent-output.mjs --format NAME --watch FILE --final FILE --diagnostic FILE -- COMMAND [ARG...]\n",
+    "Usage: agent-output.mjs --format NAME --watch FILE --final FILE --diagnostic FILE [--forward-stdin] -- COMMAND [ARG...]\n",
   );
 }
 
-const options = { format: "", watch: "", final: "", diagnostic: "" };
+const options = { format: "", watch: "", final: "", diagnostic: "", forwardStdin: false };
 let index = 2;
 for (; index < process.argv.length; index += 1) {
   const argument = process.argv[index];
   if (argument === "--") {
     index += 1;
     break;
+  }
+  if (argument === "--forward-stdin") {
+    options.forwardStdin = true;
+    continue;
   }
   if (!["--format", "--watch", "--final", "--diagnostic"].includes(argument)) {
     usage();
@@ -252,7 +256,11 @@ const child = spawn(command, commandArgs, {
   env: process.env,
   stdio: ["pipe", "pipe", "pipe"],
 });
-process.stdin.pipe(child.stdin);
+if (options.forwardStdin) {
+  process.stdin.pipe(child.stdin);
+} else {
+  child.stdin.end();
+}
 
 for (const [stream, source] of [
   [child.stdout, "stdout"],

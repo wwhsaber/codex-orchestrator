@@ -58,7 +58,7 @@ For write work add `--permission-mode bypassPermissions`. If the user names a mo
   --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "sonnet / high" --mode read -- \
   node "$ADAPTER" --format claude --watch "$WATCH" --final "$FINAL" \
-  --diagnostic "$DIAGNOSTIC" -- \
+  --diagnostic "$DIAGNOSTIC" --forward-stdin -- \
   claude -p --model sonnet --effort high --verbose \
   --output-format stream-json --include-partial-messages
 ```
@@ -102,7 +102,7 @@ For write work use `--agent build --auto`. If the user names an OpenCode model, 
   --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
   --title "$TITLE" --model-label "gpt-5.6-luna / max / fast" --mode read -- \
   node "$ADAPTER" --format codex --watch "$WATCH" --final "$FINAL" \
-  --diagnostic "$DIAGNOSTIC" -- \
+  --diagnostic "$DIAGNOSTIC" --forward-stdin -- \
   codex exec --json --output-last-message "$FINAL" \
   --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
   -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
