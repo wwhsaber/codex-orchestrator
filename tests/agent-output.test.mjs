@@ -36,7 +36,10 @@ function runAdapter(events, format = "opencode", mirrorWatch = false) {
   if (mirrorWatch) adapterArgs.push("--mirror-watch");
   adapterArgs.push("--", process.execPath, "-e", childScript);
   const env = { ...process.env };
-  if (mirrorWatch) delete env.NO_COLOR;
+  if (mirrorWatch) {
+    env.HERDR_ENV = "1";
+    env.NO_COLOR = "1";
+  }
   const run = spawnSync(
     process.execPath,
     adapterArgs,
@@ -104,10 +107,14 @@ test("styles mirrored Grok activity without coloring the saved log", () => {
   );
 
   assert.equal(result.run.status, 0);
-  assert.match(result.run.stdout, /\x1b\[2mthinking\x1b\[0m/);
-  assert.equal((result.run.stdout.match(/\x1b\[2mthinking\x1b\[0m/g) ?? []).length, 1);
-  assert.match(result.run.stdout, /\n\n  \x1b\[36;1m>\x1b\[0m/);
-  assert.match(result.run.stdout, /\x1b\[36;1mread_file\x1b\[0m/);
+  assert.match(result.run.stdout, /\x1b\[1;38;2;74;222;128magent\x1b\[0m/);
+  assert.match(result.run.stdout, /\x1b\[38;2;148;163;184mthinking\x1b\[0m/);
+  assert.equal(
+    (result.run.stdout.match(/\x1b\[38;2;148;163;184mthinking\x1b\[0m/g) ?? []).length,
+    1,
+  );
+  assert.match(result.run.stdout, /\n\n  \x1b\[1;38;2;34;211;238m>\x1b\[0m/);
+  assert.match(result.run.stdout, /\x1b\[1;38;2;34;211;238mread_file\x1b\[0m/);
   assert.doesNotMatch(result.watch, /\x1b\[/);
   assert.match(result.watch, /THINKING Inspecting the timeline\./);
 });

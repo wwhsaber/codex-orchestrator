@@ -96,8 +96,16 @@ function createRing(file, limit) {
 }
 
 const writeWatchRingLine = createRing(options.watch, WATCH_LIMIT);
+const terminalColorEnabled = process.env.HERDR_ENV === "1" || !process.env.NO_COLOR;
 const paint = (codes, value) =>
-  process.env.NO_COLOR ? value : `\x1b[${codes}m${value}\x1b[0m`;
+  terminalColorEnabled ? `\x1b[${codes}m${value}\x1b[0m` : value;
+const TERMINAL_COLOR = {
+  accent: "1;38;2;34;211;238",
+  danger: "1;38;2;251;113;133",
+  muted: "38;2;148;163;184",
+  success: "1;38;2;74;222;128",
+  thought: "3;38;2;203;213;225",
+};
 let terminalSection = "";
 
 function wrapTerminalText(value) {
@@ -126,8 +134,9 @@ function terminalLine(value) {
     terminalSection = "thinking";
     return `${gap}${lines
       .map((line, index) => {
-        const label = startsSection && index === 0 ? paint("2", "thinking") : "        ";
-        return `  ${label}  ${paint("2;3", line)}`;
+        const label =
+          startsSection && index === 0 ? paint(TERMINAL_COLOR.muted, "thinking") : "        ";
+        return `  ${label}  ${paint(TERMINAL_COLOR.thought, line)}`;
       })
       .join("\n")}`;
   }
@@ -138,28 +147,28 @@ function terminalLine(value) {
     const space = activity.indexOf(" ");
     const name = space < 0 ? activity : activity.slice(0, space);
     const detail = space < 0 ? "" : activity.slice(space + 1);
-    return `${gap}  ${paint("36;1", ">")} ${paint("36;1", name)}${detail ? `  ${paint("2", detail)}` : ""}`;
+    return `${gap}  ${paint(TERMINAL_COLOR.accent, ">")} ${paint(TERMINAL_COLOR.accent, name)}${detail ? `  ${paint(TERMINAL_COLOR.muted, detail)}` : ""}`;
   }
   if (value.startsWith("ERROR ")) {
     terminalSection = "status";
-    return `  ${paint("31;1", "!")} ${paint("31", value.slice(6))}`;
+    return `  ${paint(TERMINAL_COLOR.danger, "!")} ${paint(TERMINAL_COLOR.danger, value.slice(6))}`;
   }
   if (value.startsWith("RESPONSE ")) {
     terminalSection = "status";
-    return `  ${paint("32;1", "response")}  ${paint("2", value.slice(9))}`;
+    return `  ${paint(TERMINAL_COLOR.success, "response")}  ${paint(TERMINAL_COLOR.muted, value.slice(9))}`;
   }
   if (value.startsWith("FINISHED ")) {
     terminalSection = "status";
-    const color = value.includes("code=0") ? "32" : "31";
-    return `  ${paint(`${color};1`, "finished")}  ${paint("2", value.slice(9))}`;
+    const color = value.includes("code=0") ? TERMINAL_COLOR.success : TERMINAL_COLOR.danger;
+    return `  ${paint(color, "finished")}  ${paint(TERMINAL_COLOR.muted, value.slice(9))}`;
   }
   if (value.startsWith("STARTED ")) {
     terminalSection = "status";
-    return `  ${paint("32;1", "agent")}  ${paint("2", value.slice(8))}`;
+    return `  ${paint(TERMINAL_COLOR.success, "agent")}  ${paint(TERMINAL_COLOR.muted, value.slice(8))}`;
   }
   if (value.startsWith("SESSION ")) {
     terminalSection = "status";
-    return `  ${paint("2", "session")}  ${paint("2", value.slice(8))}`;
+    return `  ${paint(TERMINAL_COLOR.muted, "session")}  ${paint(TERMINAL_COLOR.muted, value.slice(8))}`;
   }
   terminalSection = "raw";
   return value;
