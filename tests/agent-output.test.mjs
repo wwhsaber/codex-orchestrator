@@ -106,9 +106,53 @@ test("styles mirrored Grok activity without coloring the saved log", () => {
   assert.equal(result.run.status, 0);
   assert.match(result.run.stdout, /\x1b\[2mthinking\x1b\[0m/);
   assert.equal((result.run.stdout.match(/\x1b\[2mthinking\x1b\[0m/g) ?? []).length, 1);
+  assert.match(result.run.stdout, /\n\n  \x1b\[36;1m>\x1b\[0m/);
   assert.match(result.run.stdout, /\x1b\[36;1mread_file\x1b\[0m/);
   assert.doesNotMatch(result.watch, /\x1b\[/);
   assert.match(result.watch, /THINKING Inspecting the timeline\./);
+});
+
+test("does not repeat a Grok thinking snapshot after streamed deltas", () => {
+  const result = runAdapter(
+    [
+      {
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: "Inspecting the timeline." },
+        },
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [{ type: "thinking", thinking: "Inspecting the timeline." }],
+        },
+      },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+  );
+
+  assert.equal(result.run.status, 0);
+  assert.equal((result.watch.match(/Inspecting the timeline\./g) ?? []).length, 1);
+});
+
+test("wraps long Herdr thinking blocks to a readable width", () => {
+  const thought = Array.from({ length: 30 }, () => "implementation").join(" ");
+  const result = runAdapter(
+    [
+      { type: "thinking", text: `${thought}.` },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+    true,
+  );
+
+  const thinkingLines = result.run.stdout
+    .split("\n")
+    .filter((line) => line.includes("implementation"));
+  assert.ok(thinkingLines.length > 1);
+  assert.ok(thinkingLines.every((line) => line.replace(/\x1b\[[0-9;]+m/g, "").length <= 116));
 });
 
 test("rejects a successful producer exit without final text", () => {

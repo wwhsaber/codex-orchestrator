@@ -100,36 +100,68 @@ const paint = (codes, value) =>
   process.env.NO_COLOR ? value : `\x1b[${codes}m${value}\x1b[0m`;
 let terminalSection = "";
 
+function wrapTerminalText(value) {
+  const width = Math.max(48, Math.min(100, (process.stdout.columns || 116) - 16));
+  const lines = [];
+  let line = "";
+  for (const word of value.split(/\s+/).filter(Boolean)) {
+    if (!line) {
+      line = word;
+    } else if (line.length + word.length + 1 <= width) {
+      line += ` ${word}`;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
 function terminalLine(value) {
   if (value.startsWith("THINKING ")) {
-    const label = terminalSection === "thinking" ? "        " : paint("2", "thinking");
+    const startsSection = terminalSection !== "thinking";
+    const gap = startsSection && terminalSection ? "\n" : "";
+    const lines = wrapTerminalText(value.slice(9));
     terminalSection = "thinking";
-    return `  ${label}  ${paint("2;3", value.slice(9))}`;
+    return `${gap}${lines
+      .map((line, index) => {
+        const label = startsSection && index === 0 ? paint("2", "thinking") : "        ";
+        return `  ${label}  ${paint("2;3", line)}`;
+      })
+      .join("\n")}`;
   }
-  terminalSection = "";
   if (value.startsWith("TOOL ")) {
+    const gap = terminalSection && terminalSection !== "tool" ? "\n" : "";
+    terminalSection = "tool";
     const activity = value.slice(5);
     const space = activity.indexOf(" ");
     const name = space < 0 ? activity : activity.slice(0, space);
     const detail = space < 0 ? "" : activity.slice(space + 1);
-    return `  ${paint("36;1", ">")} ${paint("36;1", name)}${detail ? `  ${paint("2", detail)}` : ""}`;
+    return `${gap}  ${paint("36;1", ">")} ${paint("36;1", name)}${detail ? `  ${paint("2", detail)}` : ""}`;
   }
   if (value.startsWith("ERROR ")) {
+    terminalSection = "status";
     return `  ${paint("31;1", "!")} ${paint("31", value.slice(6))}`;
   }
   if (value.startsWith("RESPONSE ")) {
+    terminalSection = "status";
     return `  ${paint("32;1", "response")}  ${paint("2", value.slice(9))}`;
   }
   if (value.startsWith("FINISHED ")) {
+    terminalSection = "status";
     const color = value.includes("code=0") ? "32" : "31";
     return `  ${paint(`${color};1`, "finished")}  ${paint("2", value.slice(9))}`;
   }
   if (value.startsWith("STARTED ")) {
+    terminalSection = "status";
     return `  ${paint("32;1", "agent")}  ${paint("2", value.slice(8))}`;
   }
   if (value.startsWith("SESSION ")) {
+    terminalSection = "status";
     return `  ${paint("2", "session")}  ${paint("2", value.slice(8))}`;
   }
+  terminalSection = "raw";
   return value;
 }
 
@@ -147,6 +179,7 @@ let lastAssistant = "";
 let streamedText = "";
 let thinkingBuffer = "";
 let thinkingTimer;
+let sawThinkingDelta = false;
 const openCodeMessages = new Map();
 
 function clip(value, limit = 800) {
@@ -219,7 +252,10 @@ function deltaText(event) {
 function thinkingText(event) {
   const streamEvent = event?.type === "stream_event" ? event.event : event;
   const delta = streamEvent?.delta;
-  if (delta?.type === "thinking_delta") return contentText(delta.thinking ?? delta.text);
+  if (delta?.type === "thinking_delta") {
+    sawThinkingDelta = true;
+    return contentText(delta.thinking ?? delta.text);
+  }
   if (event?.type === "thinking" || event?.type === "reasoning") {
     return contentText(event.part ?? event.content ?? event.text);
   }
@@ -231,6 +267,7 @@ function thinkingText(event) {
   }
   const messageBlocks = event?.message?.content;
   if (Array.isArray(messageBlocks)) {
+    if (sawThinkingDelta && ["grok", "claude"].includes(options.format)) return "";
     return messageBlocks
       .filter((block) => block?.type === "thinking" || block?.type === "reasoning")
       .map((block) => block.thinking ?? contentText(block))
