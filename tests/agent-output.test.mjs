@@ -162,6 +162,53 @@ test("wraps long Herdr thinking blocks to a readable width", () => {
   assert.ok(thinkingLines.every((line) => line.replace(/\x1b\[[0-9;]+m/g, "").length <= 116));
 });
 
+test("preserves thinking structure and renders fenced code without italics", () => {
+  const result = runAdapter(
+    [
+      {
+        type: "thinking",
+        text: [
+          "## Review",
+          "",
+          "- Keep `agent-output.mjs` readable",
+          "1. Preserve source lines",
+          "",
+          "```js",
+          "const answer = 42;",
+          "  return answer;",
+          "```",
+        ].join("\n"),
+      },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+    true,
+  );
+
+  assert.match(result.watch, /THINKING_HEADING Review/);
+  assert.match(result.watch, /THINKING_BULLET Keep agent-output\.mjs readable/);
+  assert.match(result.watch, /THINKING_NUMBER 1\. Preserve source lines/);
+  assert.match(result.watch, /CODE_START js/);
+  assert.match(result.watch, /CODE const answer = 42;/);
+  assert.match(result.watch, /CODE   return answer;/);
+  assert.match(result.run.stdout, /\x1b\[38;2;125;211;252mconst answer = 42;/);
+  assert.doesNotMatch(result.run.stdout, /\*\*|```/);
+});
+
+test("does not split a filename when a thinking chunk ends with a period", () => {
+  const result = runAdapter(
+    [
+      { type: "thinking", text: "Reading agent-output." },
+      { type: "thinking", text: "mjs before editing." },
+      { type: "tool_use", name: "read_file", input: { path: "agent-output.mjs" } },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+  );
+
+  assert.match(result.watch, /THINKING Reading agent-output\.mjs before editing\./);
+});
+
 test("rejects a successful producer exit without final text", () => {
   const result = runAdapter([
     {

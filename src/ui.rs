@@ -546,6 +546,72 @@ fn activity_lines(lines: &[String]) -> Vec<Line<'static>> {
                 let rendered = thinking_line(text, !thinking);
                 thinking = true;
                 rendered
+            } else if line == "THINKING_BLANK" {
+                thinking = true;
+                Line::raw("")
+            } else if let Some(text) = line.strip_prefix("THINKING_HEADING ") {
+                thinking = true;
+                Line::from(vec![
+                    Span::styled("  thinking  ", Style::default().fg(MUTED)),
+                    Span::styled(
+                        text.to_owned(),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ])
+            } else if let Some(text) = line.strip_prefix("THINKING_BULLET ") {
+                let label = if thinking { "            " } else { "  thinking  " };
+                thinking = true;
+                Line::from(vec![
+                    Span::styled(label, Style::default().fg(MUTED)),
+                    Span::styled("• ", Style::default().fg(ACCENT)),
+                    Span::styled(
+                        text.to_owned(),
+                        Style::default().fg(Color::Gray),
+                    ),
+                ])
+            } else if let Some(item) = line.strip_prefix("THINKING_NUMBER ") {
+                let label = if thinking { "            " } else { "  thinking  " };
+                let (number, text) = item.split_once(' ').unwrap_or((item, ""));
+                thinking = true;
+                Line::from(vec![
+                    Span::styled(label, Style::default().fg(MUTED)),
+                    Span::styled(
+                        format!("{number} "),
+                        Style::default().fg(ACCENT),
+                    ),
+                    Span::styled(text.to_owned(), Style::default().fg(Color::Gray)),
+                ])
+            } else if let Some(text) = line.strip_prefix("THINKING_QUOTE ") {
+                let label = if thinking { "            " } else { "  thinking  " };
+                thinking = true;
+                Line::from(vec![
+                    Span::styled(label, Style::default().fg(MUTED)),
+                    Span::styled("│ ", Style::default().fg(MUTED)),
+                    Span::styled(
+                        text.to_owned(),
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ])
+            } else if let Some(language) = line.strip_prefix("CODE_START") {
+                thinking = false;
+                Line::from(vec![
+                    Span::styled("  code      ", Style::default().fg(MUTED)),
+                    Span::styled(language.trim().to_owned(), Style::default().fg(MUTED)),
+                ])
+            } else if line == "CODE_END" {
+                thinking = false;
+                Line::raw("")
+            } else if line == "CODE" || line.starts_with("CODE ") {
+                thinking = false;
+                let text = line.strip_prefix("CODE ").unwrap_or("");
+                Line::from(vec![
+                    Span::styled("            │ ", Style::default().fg(MUTED)),
+                    Span::styled(text.to_owned(), Style::default().fg(Color::LightCyan)),
+                ])
             } else {
                 thinking = false;
                 activity_line(line)
@@ -645,9 +711,7 @@ fn thinking_line(text: &str, starts_section: bool) -> Line<'static> {
         ),
         Span::styled(
             text.to_owned(),
-            Style::default()
-                .fg(Color::Gray)
-                .add_modifier(Modifier::ITALIC),
+            Style::default().fg(Color::Gray),
         ),
     ])
 }
@@ -676,7 +740,7 @@ mod tests {
         let error = activity_line("ERROR permission denied");
 
         assert_eq!(line_text(&thinking), "  thinking  Inspecting the timeline");
-        assert!(thinking.spans[1]
+        assert!(!thinking.spans[1]
             .style
             .add_modifier
             .contains(Modifier::ITALIC));
@@ -693,6 +757,32 @@ mod tests {
         assert_eq!(line_text(&block[0]), "  thinking  First sentence.");
         assert_eq!(line_text(&block[1]), "            Second sentence.");
         assert_eq!(line_text(&block[2]), "  > grep  creationId");
+    }
+
+    #[test]
+    fn styles_structured_thinking_and_code_as_distinct_content() {
+        let block = activity_lines(&[
+            "THINKING_HEADING Review".to_owned(),
+            "THINKING_BULLET Keep the adapter small".to_owned(),
+            "THINKING_NUMBER 1. Preserve source lines".to_owned(),
+            "CODE_START rust".to_owned(),
+            "CODE let answer = 42;".to_owned(),
+            "CODE_END".to_owned(),
+        ]);
+
+        assert_eq!(line_text(&block[0]), "  thinking  Review");
+        assert!(block[0].spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+        assert_eq!(line_text(&block[1]), "            • Keep the adapter small");
+        assert_eq!(line_text(&block[2]), "            1. Preserve source lines");
+        assert_eq!(line_text(&block[3]), "  code      rust");
+        assert_eq!(line_text(&block[4]), "            │ let answer = 42;");
+        assert!(!block[4].spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::ITALIC));
     }
 
     fn line_text(line: &Line<'_>) -> String {

@@ -101,10 +101,12 @@ const paint = (codes, value) =>
   terminalColorEnabled ? `\x1b[${codes}m${value}\x1b[0m` : value;
 const TERMINAL_COLOR = {
   accent: "1;38;2;34;211;238",
+  code: "38;2;125;211;252",
   danger: "1;38;2;251;113;133",
+  heading: "1;38;2;241;245;249",
   muted: "38;2;148;163;184",
   success: "1;38;2;74;222;128",
-  thought: "3;38;2;203;213;225",
+  thought: "38;2;203;213;225",
 };
 let terminalSection = "";
 
@@ -139,6 +141,52 @@ function terminalLine(value) {
         return `  ${label}  ${paint(TERMINAL_COLOR.thought, line)}`;
       })
       .join("\n")}`;
+  }
+  if (value === "THINKING_BLANK") {
+    terminalSection = "thinking";
+    return "";
+  }
+  if (value.startsWith("THINKING_HEADING ")) {
+    const gap = terminalSection ? "\n" : "";
+    terminalSection = "thinking";
+    return `${gap}  ${paint(TERMINAL_COLOR.muted, "thinking")}  ${paint(TERMINAL_COLOR.heading, value.slice(17))}`;
+  }
+  if (value.startsWith("THINKING_BULLET ")) {
+    const startsSection = terminalSection !== "thinking";
+    terminalSection = "thinking";
+    const label = startsSection ? paint(TERMINAL_COLOR.muted, "thinking") : "        ";
+    return `  ${label}  ${paint(TERMINAL_COLOR.accent, "•")} ${paint(TERMINAL_COLOR.thought, value.slice(16))}`;
+  }
+  if (value.startsWith("THINKING_NUMBER ")) {
+    const startsSection = terminalSection !== "thinking";
+    terminalSection = "thinking";
+    const label = startsSection ? paint(TERMINAL_COLOR.muted, "thinking") : "        ";
+    const item = value.slice(16);
+    const space = item.indexOf(" ");
+    const number = space < 0 ? item : item.slice(0, space);
+    const detail = space < 0 ? "" : item.slice(space + 1);
+    return `  ${label}  ${paint(TERMINAL_COLOR.accent, number)} ${paint(TERMINAL_COLOR.thought, detail)}`;
+  }
+  if (value.startsWith("THINKING_QUOTE ")) {
+    const startsSection = terminalSection !== "thinking";
+    terminalSection = "thinking";
+    const label = startsSection ? paint(TERMINAL_COLOR.muted, "thinking") : "        ";
+    return `  ${label}  ${paint(TERMINAL_COLOR.muted, "│")} ${paint(TERMINAL_COLOR.thought, value.slice(15))}`;
+  }
+  if (value.startsWith("CODE_START")) {
+    const language = value.slice(10).trim();
+    const gap = terminalSection ? "\n" : "";
+    terminalSection = "code";
+    return `${gap}  ${paint(TERMINAL_COLOR.muted, "code")}      ${language ? paint(TERMINAL_COLOR.muted, language) : ""}`.trimEnd();
+  }
+  if (value === "CODE_END") {
+    terminalSection = "thinking";
+    return "";
+  }
+  if (value === "CODE" || value.startsWith("CODE ")) {
+    terminalSection = "code";
+    const code = value === "CODE" ? "" : value.slice(5);
+    return `            ${paint(TERMINAL_COLOR.muted, "│")} ${paint(TERMINAL_COLOR.code, code)}`;
   }
   if (value.startsWith("TOOL ")) {
     const gap = terminalSection && terminalSection !== "tool" ? "\n" : "";
@@ -189,6 +237,7 @@ let streamedText = "";
 let thinkingBuffer = "";
 let thinkingTimer;
 let sawThinkingDelta = false;
+let thinkingInCode = false;
 const openCodeMessages = new Map();
 
 function clip(value, limit = 800) {
@@ -198,6 +247,69 @@ function clip(value, limit = 800) {
     .replace(/\s{2,}/g, " ")
     .trim();
   return clean.length > limit ? `${clean.slice(0, limit)}...[truncated]` : clean;
+}
+
+function cleanThought(value, limit = 8000) {
+  const clean = String(value ?? "")
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, "  ")
+    .replace(/[ \f\v]+$/gm, "")
+    .trim();
+  return clean.length > limit ? `${clean.slice(0, limit)}...[truncated]` : clean;
+}
+
+function cleanInlineMarkup(value) {
+  return value
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
+}
+
+function writeThinkingText(value) {
+  for (const sourceLine of value.split("\n")) {
+    const line = sourceLine.trimEnd();
+    const fence = line.trim().match(/^```\s*([^`]*)$/);
+    if (fence) {
+      if (thinkingInCode) {
+        writeWatchLine("CODE_END");
+        thinkingInCode = false;
+      } else {
+        writeWatchLine(`CODE_START ${fence[1].trim()}`.trimEnd());
+        thinkingInCode = true;
+      }
+      continue;
+    }
+    if (thinkingInCode) {
+      writeWatchLine(line ? `CODE ${line}` : "CODE");
+      continue;
+    }
+    if (!line.trim()) {
+      writeWatchLine("THINKING_BLANK");
+      continue;
+    }
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+)$/);
+    if (heading) {
+      writeWatchLine(`THINKING_HEADING ${cleanInlineMarkup(heading[1])}`);
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+    if (bullet) {
+      writeWatchLine(`THINKING_BULLET ${cleanInlineMarkup(bullet[1])}`);
+      continue;
+    }
+    const numbered = line.match(/^\s*(\d+[.)])\s+(.+)$/);
+    if (numbered) {
+      writeWatchLine(`THINKING_NUMBER ${numbered[1]} ${cleanInlineMarkup(numbered[2])}`);
+      continue;
+    }
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) {
+      writeWatchLine(`THINKING_QUOTE ${cleanInlineMarkup(quote[1])}`);
+      continue;
+    }
+    writeWatchLine(`THINKING ${cleanInlineMarkup(line.trim())}`);
+  }
 }
 
 function emitOnce(key, value) {
@@ -211,19 +323,19 @@ function flushThinking() {
     clearTimeout(thinkingTimer);
     thinkingTimer = undefined;
   }
-  const text = clip(thinkingBuffer, 8000);
+  const text = cleanThought(thinkingBuffer, 8000);
   thinkingBuffer = "";
-  if (text) writeWatchLine(`THINKING ${text}`);
+  if (text) writeThinkingText(text);
 }
 
 function queueThinking(value) {
   thinkingBuffer += value;
   if (thinkingTimer) clearTimeout(thinkingTimer);
-  if (thinkingBuffer.length >= 8000 || /(?:[.!?。！？]|…)\s*$/.test(thinkingBuffer)) {
+  if (thinkingBuffer.length >= 8000 || thinkingBuffer.includes("\n")) {
     flushThinking();
     return;
   }
-  thinkingTimer = setTimeout(flushThinking, 500);
+  thinkingTimer = setTimeout(flushThinking, 900);
   thinkingTimer.unref();
 }
 
