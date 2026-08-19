@@ -96,10 +96,48 @@ function createRing(file, limit) {
 }
 
 const writeWatchRingLine = createRing(options.watch, WATCH_LIMIT);
+const paint = (codes, value) =>
+  process.env.NO_COLOR ? value : `\x1b[${codes}m${value}\x1b[0m`;
+let terminalSection = "";
+
+function terminalLine(value) {
+  if (value.startsWith("THINKING ")) {
+    const label = terminalSection === "thinking" ? "        " : paint("2", "thinking");
+    terminalSection = "thinking";
+    return `  ${label}  ${paint("2;3", value.slice(9))}`;
+  }
+  terminalSection = "";
+  if (value.startsWith("TOOL ")) {
+    const activity = value.slice(5);
+    const space = activity.indexOf(" ");
+    const name = space < 0 ? activity : activity.slice(0, space);
+    const detail = space < 0 ? "" : activity.slice(space + 1);
+    return `  ${paint("36;1", ">")} ${paint("36;1", name)}${detail ? `  ${paint("2", detail)}` : ""}`;
+  }
+  if (value.startsWith("ERROR ")) {
+    return `  ${paint("31;1", "!")} ${paint("31", value.slice(6))}`;
+  }
+  if (value.startsWith("RESPONSE ")) {
+    return `  ${paint("32;1", "response")}  ${paint("2", value.slice(9))}`;
+  }
+  if (value.startsWith("FINISHED ")) {
+    const color = value.includes("code=0") ? "32" : "31";
+    return `  ${paint(`${color};1`, "finished")}  ${paint("2", value.slice(9))}`;
+  }
+  if (value.startsWith("STARTED ")) {
+    return `  ${paint("32;1", "agent")}  ${paint("2", value.slice(8))}`;
+  }
+  if (value.startsWith("SESSION ")) {
+    return `  ${paint("2", "session")}  ${paint("2", value.slice(8))}`;
+  }
+  return value;
+}
+
 const writeWatchLine = (value) => {
   writeWatchRingLine(value);
   if (options.mirrorWatch || process.env.HERDR_ENV === "1") {
-    process.stdout.write(value.endsWith("\n") ? value : `${value}\n`);
+    const display = terminalLine(value);
+    process.stdout.write(display.endsWith("\n") ? display : `${display}\n`);
   }
 };
 const writeDiagnosticLine = createRing(diagnosticTemp, DIAGNOSTIC_LIMIT);

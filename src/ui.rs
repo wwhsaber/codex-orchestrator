@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::Frame;
 
 use crate::app::{App, View};
 use crate::model::Task;
@@ -109,10 +109,7 @@ fn draw_agent_pane(frame: &mut Frame<'_>, area: Rect, app: &App, task: &Task) {
     let empty = Vec::new();
     let lines = app.agent_lines.get(&task.id).unwrap_or(&empty);
     let start = lines.len().saturating_sub(visible_height);
-    let content: Vec<Line<'_>> = lines[start..]
-        .iter()
-        .map(|line| Line::raw(line.as_str()))
-        .collect();
+    let content = activity_lines(&lines[start..]);
     let paragraph = Paragraph::new(content)
         .block(
             Block::default()
@@ -328,10 +325,7 @@ fn draw_preview(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .unwrap_or_else(|| " Live output ".to_owned());
     let height = area.height.saturating_sub(2) as usize;
     let start = app.lines.len().saturating_sub(height);
-    let lines: Vec<Line<'_>> = app.lines[start..]
-        .iter()
-        .map(|line| Line::raw(line.as_str()))
-        .collect();
+    let lines = activity_lines(&app.lines[start..]);
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
@@ -383,11 +377,14 @@ fn draw_detail(frame: &mut Frame<'_>, app: &App) {
     } else {
         app.scroll.min(max_scroll)
     };
-    let lines: Vec<Line<'_>> = app
-        .lines
-        .iter()
-        .map(|line| Line::raw(line.as_str()))
-        .collect();
+    let lines: Vec<Line<'_>> = if app.view == View::Result {
+        app.lines
+            .iter()
+            .map(|line| Line::raw(line.clone()))
+            .collect()
+    } else {
+        activity_lines(&app.lines)
+    };
     let paragraph = Paragraph::new(lines)
         .scroll((scroll.min(u16::MAX as usize) as u16, 0))
         .block(
@@ -540,6 +537,121 @@ fn fit_text(value: &str, width: usize) -> String {
     format!("{start}...{end}")
 }
 
+fn activity_lines(lines: &[String]) -> Vec<Line<'static>> {
+    let mut thinking = false;
+    lines
+        .iter()
+        .map(|line| {
+            if let Some(text) = line.strip_prefix("THINKING ") {
+                let rendered = thinking_line(text, !thinking);
+                thinking = true;
+                rendered
+            } else {
+                thinking = false;
+                activity_line(line)
+            }
+        })
+        .collect()
+}
+
+fn activity_line(line: &str) -> Line<'static> {
+    if let Some(text) = line.strip_prefix("THINKING ") {
+        return thinking_line(text, true);
+    }
+    if let Some(activity) = line.strip_prefix("TOOL ") {
+        let (name, detail) = activity.split_once(' ').unwrap_or((activity, ""));
+        return Line::from(vec![
+            Span::styled(
+                "  > ",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                name.to_owned(),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!("  {detail}")
+                },
+                Style::default().fg(MUTED),
+            ),
+        ]);
+    }
+    if let Some(text) = line.strip_prefix("ERROR ") {
+        return Line::from(vec![
+            Span::styled(
+                "  ! ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(text.to_owned(), Style::default().fg(Color::Red)),
+        ]);
+    }
+    if let Some(text) = line.strip_prefix("RESPONSE ") {
+        return Line::from(vec![
+            Span::styled(
+                "  response  ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(text.to_owned(), Style::default().fg(MUTED)),
+        ]);
+    }
+    if let Some(text) = line.strip_prefix("FINISHED ") {
+        let color = if text.contains("code=0") {
+            Color::Green
+        } else {
+            Color::Red
+        };
+        return Line::from(vec![
+            Span::styled(
+                "  finished  ",
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(text.to_owned(), Style::default().fg(MUTED)),
+        ]);
+    }
+    if let Some(text) = line.strip_prefix("STARTED ") {
+        return Line::from(vec![
+            Span::styled(
+                "  agent  ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(text.to_owned(), Style::default().fg(MUTED)),
+        ]);
+    }
+    if let Some(text) = line.strip_prefix("SESSION ") {
+        return Line::from(vec![
+            Span::styled("  session  ", Style::default().fg(MUTED)),
+            Span::styled(text.to_owned(), Style::default().fg(MUTED)),
+        ]);
+    }
+    Line::raw(line.to_owned())
+}
+
+fn thinking_line(text: &str, starts_section: bool) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            if starts_section {
+                "  thinking  "
+            } else {
+                "            "
+            },
+            Style::default().fg(MUTED),
+        ),
+        Span::styled(
+            text.to_owned(),
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::ITALIC),
+        ),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,5 +667,38 @@ mod tests {
         assert!(panes[1].x < panes[2].x);
         assert!(panes[3].y > panes[0].y);
         assert!(panes[3].x < panes[4].x);
+    }
+
+    #[test]
+    fn styles_activity_by_semantic_tag() {
+        let thinking = activity_line("THINKING Inspecting the timeline");
+        let tool = activity_line("TOOL read_file src/app.ts");
+        let error = activity_line("ERROR permission denied");
+
+        assert_eq!(line_text(&thinking), "  thinking  Inspecting the timeline");
+        assert!(thinking.spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::ITALIC));
+        assert_eq!(line_text(&tool), "  > read_file  src/app.ts");
+        assert_eq!(tool.spans[1].style.fg, Some(ACCENT));
+        assert_eq!(line_text(&error), "  ! permission denied");
+        assert_eq!(error.spans[1].style.fg, Some(Color::Red));
+
+        let block = activity_lines(&[
+            "THINKING First sentence.".to_owned(),
+            "THINKING Second sentence.".to_owned(),
+            "TOOL grep creationId".to_owned(),
+        ]);
+        assert_eq!(line_text(&block[0]), "  thinking  First sentence.");
+        assert_eq!(line_text(&block[1]), "            Second sentence.");
+        assert_eq!(line_text(&block[2]), "  > grep  creationId");
+    }
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
     }
 }

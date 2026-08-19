@@ -127,6 +127,8 @@ The dashboard reads local runtime state and logs directly. It does not call a mo
 
 `codex-orchestrator agents` opens a live multi-pane view containing only running Agents. New Agents join automatically, and each pane disappears when its Agent reaches a terminal state. Panes are arranged horizontally first and continue on additional rows when the terminal cannot keep every pane readable on one row. The command remains open while no Agents are running so it can pick up future work; press `q` or `Esc` to exit.
 
+Live activity is rendered by meaning rather than as raw log prefixes: consecutive thinking updates form one muted block, tool calls use a compact command row, and responses, failures, and completion have distinct status styling. Herdr panes receive the same semantic presentation through ANSI output while the saved log remains plain text.
+
 If a saved task says `running` but its recorded supervisor process no longer exists or belongs to another process, the dashboard presents it as `INTERRUPTED` and excludes it from the Running filter. The supervisor also writes this terminal state when `status` or `await` observes a missing process, so crashes, forced exits, and machine restarts do not leave a task permanently active.
 
 ```text

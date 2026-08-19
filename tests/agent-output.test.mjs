@@ -16,30 +16,31 @@ const adapter = path.join(
   "agent-output.mjs",
 );
 
-function runAdapter(events, format = "opencode") {
+function runAdapter(events, format = "opencode", mirrorWatch = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-agent-output-"));
   const watch = path.join(directory, "lane.log");
   const final = path.join(directory, "final.txt");
   const diagnostic = path.join(directory, "diagnostic.log");
   const childScript = `for (const event of ${JSON.stringify(events)}) console.log(JSON.stringify(event));`;
+  const adapterArgs = [
+    adapter,
+    "--format",
+    format,
+    "--watch",
+    watch,
+    "--final",
+    final,
+    "--diagnostic",
+    diagnostic,
+  ];
+  if (mirrorWatch) adapterArgs.push("--mirror-watch");
+  adapterArgs.push("--", process.execPath, "-e", childScript);
+  const env = { ...process.env };
+  if (mirrorWatch) delete env.NO_COLOR;
   const run = spawnSync(
     process.execPath,
-    [
-      adapter,
-      "--format",
-      format,
-      "--watch",
-      watch,
-      "--final",
-      final,
-      "--diagnostic",
-      diagnostic,
-      "--",
-      process.execPath,
-      "-e",
-      childScript,
-    ],
-    { encoding: "utf8" },
+    adapterArgs,
+    { encoding: "utf8", env },
   );
   return {
     run,
@@ -88,6 +89,26 @@ test("groups Grok thinking deltas into readable lines", () => {
   assert.doesNotMatch(result.watch, /THINKING This\nTHINKING is/);
   assert.match(result.watch, /TOOL read_file src\/app\.ts/);
   assert.equal(result.final, "Done");
+});
+
+test("styles mirrored Grok activity without coloring the saved log", () => {
+  const result = runAdapter(
+    [
+      { type: "thinking", text: "Inspecting the timeline." },
+      { type: "thinking", text: "Reading the mapper." },
+      { type: "tool_use", name: "read_file", input: { path: "src/app.ts" } },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+    true,
+  );
+
+  assert.equal(result.run.status, 0);
+  assert.match(result.run.stdout, /\x1b\[2mthinking\x1b\[0m/);
+  assert.equal((result.run.stdout.match(/\x1b\[2mthinking\x1b\[0m/g) ?? []).length, 1);
+  assert.match(result.run.stdout, /\x1b\[36;1mread_file\x1b\[0m/);
+  assert.doesNotMatch(result.watch, /\x1b\[/);
+  assert.match(result.watch, /THINKING Inspecting the timeline\./);
 });
 
 test("rejects a successful producer exit without final text", () => {
