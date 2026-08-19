@@ -315,6 +315,7 @@ function commandStart(args) {
   const script = [
     "#!/bin/sh",
     "set +e",
+    "export HERDR_ENV=1",
     `cd ${quoteShell(values.cwd)} || exit 72`,
     command.map(quoteShell).join(" "),
     "lane_code=$?",
