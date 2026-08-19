@@ -71,6 +71,32 @@ requested_runtime=${CODEX_ORCHESTRATOR_RUNTIME:-auto}
 action=${1-}
 selected_runtime=
 
+if [ "$action" = "producer-session" ]; then
+  if [ "${2-}" != "--task-id" ] || [ -z "${3-}" ] || [ "$#" -ne 3 ]; then
+    printf 'Usage: lane-runtime.sh producer-session --task-id ID\n' >&2
+    exit 2
+  fi
+  task_id=$3
+  case "$task_id" in
+    *[!A-Za-z0-9._-]*)
+      printf 'Invalid task ID: %s\n' "$task_id" >&2
+      exit 2
+      ;;
+  esac
+  state_file="$(state_root)/$task_id/state"
+  if [ ! -f "$state_file" ]; then
+    printf 'Task state not found: %s\n' "$task_id" >&2
+    exit 1
+  fi
+  session_id=$(awk -F= '$1 == "producer_session_id" { print substr($0, 21); exit }' "$state_file")
+  if [ -z "$session_id" ]; then
+    printf 'Task has no producer session ID: %s\n' "$task_id" >&2
+    exit 1
+  fi
+  printf '%s\n' "$session_id"
+  exit 0
+fi
+
 case "$action" in
   await|status|stop|result)
     if [ "${2-}" = "--state-dir" ] && [ -n "${3-}" ]; then

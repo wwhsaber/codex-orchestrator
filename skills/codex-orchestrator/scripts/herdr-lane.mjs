@@ -118,6 +118,7 @@ function finishFiles(stateDir, state, exitCode, message) {
   const adapterStatus = sourceStatus && fs.existsSync(sourceStatus) ? readFields(sourceStatus) : {};
   const producerExitCode = adapterStatus.producer_exit_code ?? "";
   const finalAvailable = adapterStatus.final_available ?? "";
+  const producerSessionId = adapterStatus.session_id ?? "";
   if (producerExitCode === "0" && finalAvailable === "false") {
     state = "failed";
     message = "missing_final";
@@ -139,6 +140,7 @@ function finishFiles(stateDir, state, exitCode, message) {
     result_truncated: content.length > RESULT_LIMIT ? "true" : "false",
     log_bytes: fs.existsSync(fields.log) ? fs.statSync(fields.log).size : 0,
     producer_exit_code: producerExitCode,
+    producer_session_id: producerSessionId,
     final_available: finalAvailable,
     message,
   });
@@ -304,6 +306,7 @@ function commandStart(args) {
     done,
     exit_code: "",
     producer_exit_code: "",
+    producer_session_id: "",
     final_available: "",
     log_bytes: 0,
     result_truncated: "false",

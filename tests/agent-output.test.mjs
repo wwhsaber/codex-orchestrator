@@ -76,7 +76,7 @@ test("accepts text from a normally completed OpenCode step", () => {
 test("groups Grok thinking deltas into readable lines", () => {
   const result = runAdapter(
     [
-      { type: "thinking", text: "This" },
+      { type: "thinking", text: "This", session_id: "session-grok-123" },
       { type: "thinking", text: " is" },
       { type: "thinking", text: " a" },
       { type: "thinking", text: " large" },
@@ -92,6 +92,7 @@ test("groups Grok thinking deltas into readable lines", () => {
   assert.doesNotMatch(result.watch, /THINKING This\nTHINKING is/);
   assert.match(result.watch, /TOOL read_file src\/app\.ts/);
   assert.equal(result.final, "Done");
+  assert.match(result.status, /session_id=session-grok-123/);
 });
 
 test("styles mirrored Grok activity without coloring the saved log", () => {

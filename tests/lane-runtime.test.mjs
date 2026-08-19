@@ -82,6 +82,28 @@ test("state-dir trims a trailing temporary-directory separator", () => {
   assert.doesNotMatch(stateDir, /\/\//);
 });
 
+test("reads a persisted producer session by task id", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-session-"));
+  const stateRoot = path.join(temp, "state");
+  const taskDir = path.join(stateRoot, "task-123");
+  fs.mkdirSync(taskDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(taskDir, "state"),
+    "task_id=task-123\nproducer_session_id=session-grok-123\n",
+  );
+
+  const output = execFileSync(
+    runtime,
+    ["producer-session", "--task-id", "task-123"],
+    {
+      encoding: "utf8",
+      env: { ...process.env, CODEX_ORCHESTRATOR_STATE_ROOT: stateRoot },
+    },
+  );
+
+  assert.equal(output.trim(), "session-grok-123");
+});
+
 test("a stale supervisor override is rejected while Herdr is ready", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-runtime-guard-"));
   const bin = path.join(temp, "bin");

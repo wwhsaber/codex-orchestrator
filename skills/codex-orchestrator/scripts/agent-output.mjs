@@ -263,6 +263,7 @@ let thinkingBuffer = "";
 let thinkingTimer;
 let sawThinkingDelta = false;
 let thinkingInCode = false;
+let producerSessionId = "";
 const openCodeMessages = new Map();
 
 function clip(value, limit = 800) {
@@ -499,6 +500,10 @@ function toolSummary(event) {
 }
 
 function handleEvent(event) {
+  const sessionId = event?.session_id ?? event?.sessionId ?? event?.session?.id;
+  if (typeof sessionId === "string" && /^[A-Za-z0-9._-]{8,200}$/.test(sessionId)) {
+    producerSessionId = sessionId;
+  }
   const name = eventName(event).toLowerCase();
   const thinking = thinkingText(event);
   if (thinking) queueThinking(thinking);
@@ -621,6 +626,7 @@ child.on("close", (code, signal) => {
       `producer_exit_code=${producerExitCode}`,
       `adapter_exit_code=${adapterExitCode}`,
       `final_available=${best ? "true" : "false"}`,
+      `session_id=${producerSessionId}`,
       "",
     ].join("\n"),
   );

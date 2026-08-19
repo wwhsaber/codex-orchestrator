@@ -55,6 +55,7 @@ write_state() {
     printf 'done=%s\n' "$done_file"
     printf 'exit_code=%s\n' "$exit_code"
     printf 'producer_exit_code=%s\n' "${producer_exit_code-}"
+    printf 'producer_session_id=%s\n' "${producer_session_id-}"
     printf 'final_available=%s\n' "${final_available-}"
     printf 'log_bytes=%s\n' "$log_bytes"
     printf 'result_truncated=%s\n' "$result_truncated"
@@ -576,9 +577,11 @@ command_run() {
   set -e
 
   producer_exit_code=
+  producer_session_id=
   final_available=
   if [ -n "$result_source_file" ] && [ -f "${result_source_file}.status" ]; then
     producer_exit_code=$(read_field producer_exit_code "${result_source_file}.status")
+    producer_session_id=$(read_field session_id "${result_source_file}.status")
     final_available=$(read_field final_available "${result_source_file}.status")
   fi
   log_bytes=$(wc -c < "$log_file" | tr -d ' ')

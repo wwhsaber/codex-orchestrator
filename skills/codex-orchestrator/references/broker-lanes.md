@@ -63,6 +63,8 @@ Every start command must include these runtime arguments:
 
 For write work add `--permission-mode bypassPermissions`. If the user names a model, add `-m MODEL`. Keep `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not combine `--check` with `--no-subagents`.
 
+Grok sessions are fresh unless the user explicitly requests continuation. For the latest Grok conversation in the lane working directory, add `--continue`. For an exact prior Orchestrator task, obtain the persisted ID with `"$RUNTIME" producer-session --task-id "$TASK_ID"` and add `--resume "$SESSION_ID"`. Keep the new spec and runtime state separate even though Grok reuses its conversation.
+
 ### Claude
 
 ```bash

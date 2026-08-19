@@ -209,6 +209,8 @@ Luna producer: GPT-5.6 Luna Max, Fast service
 
 The runtime waits for `done` without model output and returns terminal state plus the bounded result once. A producer exit code of `0` counts as success only when the adapter also observed a usable final response. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
 
+Grok lanes create a new conversation by default. An explicit continuation request can use `--continue` for the latest conversation in the working directory or `lane-runtime.sh producer-session --task-id ID` plus `grok --resume SESSION_ID` for an exact prior Orchestrator task. Successful lane cleanup keeps this small session field in task state while removing transient logs.
+
 In another terminal, `codex-orchestrator` can display every Lane and follow its output. This user-side observer reads local files only and does not alter the main Agent's silent wait.
 
 A Terra Low Broker is available only as an explicit UI mode. When requested, it runs the same `start` command once and exits after the receipt so a launcher card appears in Codex. It is not required for external execution and is not used by default.

@@ -181,6 +181,15 @@ When this skill is active and delegation is needed, external CLI lanes are the p
 
 Use direct runtime-selector launch for every external lane, regardless of expected duration. Its default `auto` mode prefers a ready Herdr server. Use optional Broker mode only when the user explicitly asks for it.
 
+External lanes start fresh sessions by default. When the user explicitly asks Grok to continue the latest session for the current working directory, add `--continue` to the Grok command. When the user asks to continue a specific Orchestrator task, read its persisted Grok session first and add an exact resume flag:
+
+```bash
+SESSION_ID=$("$RUNTIME" producer-session --task-id "$TASK_ID")
+grok --resume "$SESSION_ID" ...
+```
+
+Do not infer continuation from similar task text. Never resume implicitly, because an old session can carry stale repository facts. A resumed Grok conversation still gets a new Orchestrator task state, spec, Herdr pane, bounded result, and verification pass.
+
 Before using an external CLI, run a preflight for the requested lane:
 
 ```bash
