@@ -109,6 +109,7 @@ const TERMINAL_COLOR = {
   thought: "38;2;203;213;225",
 };
 let terminalSection = "";
+let terminalCodeLine = 0;
 
 function wrapTerminalText(value) {
   const width = Math.max(48, Math.min(100, (process.stdout.columns || 116) - 16));
@@ -126,6 +127,22 @@ function wrapTerminalText(value) {
   }
   if (line) lines.push(line);
   return lines.length ? lines : [""];
+}
+
+function wrapTerminalCode(value) {
+  const width = Math.max(32, Math.min(110, (process.stdout.columns || 116) - 24));
+  if (value.length <= width) return [value];
+  const indent = value.match(/^\s*/)?.[0] ?? "";
+  const lines = [];
+  let remaining = value;
+  while (remaining.length > width) {
+    let cut = remaining.lastIndexOf(" ", width);
+    if (cut <= indent.length) cut = width;
+    lines.push(remaining.slice(0, cut).trimEnd());
+    remaining = `${indent}  ${remaining.slice(cut).trimStart()}`;
+  }
+  lines.push(remaining);
+  return lines;
 }
 
 function terminalLine(value) {
@@ -177,16 +194,24 @@ function terminalLine(value) {
     const language = value.slice(10).trim();
     const gap = terminalSection ? "\n" : "";
     terminalSection = "code";
-    return `${gap}  ${paint(TERMINAL_COLOR.muted, "code")}      ${language ? paint(TERMINAL_COLOR.muted, language) : ""}`.trimEnd();
+    terminalCodeLine = 0;
+    const title = language ? `─ ${language} ` : "─";
+    return `${gap}  ${paint(TERMINAL_COLOR.muted, "code")}      ${paint(TERMINAL_COLOR.muted, `╭${title}`)}`;
   }
   if (value === "CODE_END") {
     terminalSection = "thinking";
-    return "";
+    return `            ${paint(TERMINAL_COLOR.muted, "╰─")}`;
   }
   if (value === "CODE" || value.startsWith("CODE ")) {
     terminalSection = "code";
     const code = value === "CODE" ? "" : value.slice(5);
-    return `            ${paint(TERMINAL_COLOR.muted, "│")} ${paint(TERMINAL_COLOR.code, code)}`;
+    terminalCodeLine += 1;
+    return wrapTerminalCode(code)
+      .map((line, index) => {
+        const number = index === 0 ? String(terminalCodeLine).padStart(4) : "   ·";
+        return `      ${paint(TERMINAL_COLOR.muted, number)} ${paint(TERMINAL_COLOR.muted, "│")} ${paint(TERMINAL_COLOR.code, line)}`;
+      })
+      .join("\n");
   }
   if (value.startsWith("TOOL ")) {
     const gap = terminalSection && terminalSection !== "tool" ? "\n" : "";
@@ -255,7 +280,7 @@ function cleanThought(value, limit = 8000) {
     .replace(/\r\n?/g, "\n")
     .replace(/\t/g, "  ")
     .replace(/[ \f\v]+$/gm, "")
-    .trim();
+    .replace(/^\n+|\n+$/g, "");
   return clean.length > limit ? `${clean.slice(0, limit)}...[truncated]` : clean;
 }
 
@@ -268,7 +293,12 @@ function cleanInlineMarkup(value) {
 
 function writeThinkingText(value) {
   for (const sourceLine of value.split("\n")) {
-    const line = sourceLine.trimEnd();
+    let line = sourceLine.trimEnd();
+    const inlineFence = line.match(/^(.*\S)\s{2,}(```\s*[^`]*)$/);
+    if (inlineFence && !thinkingInCode) {
+      writeThinkingText(inlineFence[1]);
+      line = inlineFence[2];
+    }
     const fence = line.trim().match(/^```\s*([^`]*)$/);
     if (fence) {
       if (thinkingInCode) {
@@ -318,25 +348,39 @@ function emitOnce(key, value) {
   writeWatchLine(value);
 }
 
-function flushThinking() {
+function flushThinking(force = true) {
   if (thinkingTimer) {
     clearTimeout(thinkingTimer);
     thinkingTimer = undefined;
   }
-  const text = cleanThought(thinkingBuffer, 8000);
-  thinkingBuffer = "";
+  let boundary = thinkingBuffer.length;
+  if (!force) {
+    boundary = thinkingBuffer.lastIndexOf("\n") + 1;
+    if (boundary === 0 && !thinkingInCode) {
+      const matches = [...thinkingBuffer.matchAll(/[.!?。！？](?=\s)/g)];
+      const last = matches.at(-1);
+      boundary = last ? (last.index ?? 0) + 1 : 0;
+    }
+    if (boundary === 0 && thinkingBuffer.length >= 2000) {
+      boundary = thinkingBuffer.lastIndexOf(" ", 1800) + 1;
+    }
+    if (boundary === 0) return;
+  }
+  const text = cleanThought(thinkingBuffer.slice(0, boundary), 64000);
+  thinkingBuffer = thinkingBuffer.slice(boundary);
   if (text) writeThinkingText(text);
 }
 
 function queueThinking(value) {
   thinkingBuffer += value;
-  if (thinkingTimer) clearTimeout(thinkingTimer);
-  if (thinkingBuffer.length >= 8000 || thinkingBuffer.includes("\n")) {
-    flushThinking();
+  if (thinkingBuffer.length >= 64000) {
+    flushThinking(false);
     return;
   }
-  thinkingTimer = setTimeout(flushThinking, 900);
-  thinkingTimer.unref();
+  if (!thinkingTimer) {
+    thinkingTimer = setTimeout(() => flushThinking(false), 900);
+    thinkingTimer.unref();
+  }
 }
 
 function contentText(value) {

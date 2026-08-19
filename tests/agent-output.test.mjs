@@ -192,6 +192,8 @@ test("preserves thinking structure and renders fenced code without italics", () 
   assert.match(result.watch, /CODE const answer = 42;/);
   assert.match(result.watch, /CODE   return answer;/);
   assert.match(result.run.stdout, /\x1b\[38;2;125;211;252mconst answer = 42;/);
+  assert.match(result.run.stdout, /\s+1\x1b\[0m \x1b\[38;2;148;163;184m│/);
+  assert.match(result.run.stdout, /╰─/);
   assert.doesNotMatch(result.run.stdout, /\*\*|```/);
 });
 
@@ -207,6 +209,25 @@ test("does not split a filename when a thinking chunk ends with a period", () =>
   );
 
   assert.match(result.watch, /THINKING Reading agent-output\.mjs before editing\./);
+});
+
+test("keeps fragmented fences and code lines in the correct section", () => {
+  const result = runAdapter(
+    [
+      { type: "thinking", text: "Inspect the harness.  ```typescript\n// useCreativeCanvasAgentHarness." },
+      { type: "thinking", text: "ts\nfunction inspect() {\n  return true;\n}\n```\n\nContinue with the review." },
+      { type: "tool_use", name: "read_file", input: { path: "src/app.ts" } },
+      { type: "result", result: "Done" },
+    ],
+    "grok",
+  );
+
+  assert.match(result.watch, /THINKING Inspect the harness\./);
+  assert.match(result.watch, /CODE_START typescript/);
+  assert.match(result.watch, /CODE \/\/ useCreativeCanvasAgentHarness\.ts/);
+  assert.match(result.watch, /CODE   return true;/);
+  assert.match(result.watch, /CODE_END\nTHINKING_BLANK\nTHINKING Continue with the review\./);
+  assert.doesNotMatch(result.watch, /CODE Continue with the review/);
 });
 
 test("rejects a successful producer exit without final text", () => {

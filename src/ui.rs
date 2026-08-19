@@ -539,6 +539,7 @@ fn fit_text(value: &str, width: usize) -> String {
 
 fn activity_lines(lines: &[String]) -> Vec<Line<'static>> {
     let mut thinking = false;
+    let mut code_line = 0;
     lines
         .iter()
         .map(|line| {
@@ -598,18 +599,33 @@ fn activity_lines(lines: &[String]) -> Vec<Line<'static>> {
                 ])
             } else if let Some(language) = line.strip_prefix("CODE_START") {
                 thinking = false;
+                code_line = 0;
                 Line::from(vec![
                     Span::styled("  code      ", Style::default().fg(MUTED)),
-                    Span::styled(language.trim().to_owned(), Style::default().fg(MUTED)),
+                    Span::styled(
+                        if language.trim().is_empty() {
+                            "╭─".to_owned()
+                        } else {
+                            format!("╭─ {} ", language.trim())
+                        },
+                        Style::default().fg(MUTED),
+                    ),
                 ])
             } else if line == "CODE_END" {
                 thinking = false;
-                Line::raw("")
+                Line::from(Span::styled(
+                    "            ╰─",
+                    Style::default().fg(MUTED),
+                ))
             } else if line == "CODE" || line.starts_with("CODE ") {
                 thinking = false;
+                code_line += 1;
                 let text = line.strip_prefix("CODE ").unwrap_or("");
                 Line::from(vec![
-                    Span::styled("            │ ", Style::default().fg(MUTED)),
+                    Span::styled(
+                        format!("      {code_line:>4} │ "),
+                        Style::default().fg(MUTED),
+                    ),
                     Span::styled(text.to_owned(), Style::default().fg(Color::LightCyan)),
                 ])
             } else {
@@ -777,8 +793,8 @@ mod tests {
             .contains(Modifier::BOLD));
         assert_eq!(line_text(&block[1]), "            • Keep the adapter small");
         assert_eq!(line_text(&block[2]), "            1. Preserve source lines");
-        assert_eq!(line_text(&block[3]), "  code      rust");
-        assert_eq!(line_text(&block[4]), "            │ let answer = 42;");
+        assert_eq!(line_text(&block[3]), "  code      ╭─ rust ");
+        assert_eq!(line_text(&block[4]), "         1 │ let answer = 42;");
         assert!(!block[4].spans[1]
             .style
             .add_modifier
