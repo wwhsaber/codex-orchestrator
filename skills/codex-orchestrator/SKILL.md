@@ -280,7 +280,7 @@ OpenCode note: use `opencode run --format json --thinking`; use `--agent plan` f
 
 ### Model Selection
 
-If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use the CLI default except for Claude and Antigravity: use `sonnet` for Claude and `gemini-3.6-flash-high` for Antigravity. OpenCode uses its current configured model unless the user names one.
+If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use `grok-4.5` for Grok, `sonnet` for Claude, and `gemini-3.6-flash-high` for Antigravity. OpenCode uses its current configured model unless the user names one.
 
 `luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
