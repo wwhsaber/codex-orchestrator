@@ -95,6 +95,78 @@ test("groups Grok thinking deltas into readable lines", () => {
   assert.match(result.status, /session_id=session-grok-123/);
 });
 
+test("adapts Antigravity step updates and result responses", () => {
+  const result = runAdapter(
+    [
+      {
+        event: "init",
+        conversation_id: "agy-session-123",
+        init: { model: "gemini-3.8-flash-high" },
+      },
+      {
+        event: "step_update",
+        step_update: {
+          step_index: 1,
+          state: "DONE",
+          step_type: "agent_response",
+          usage: { thinking_tokens: 321 },
+        },
+      },
+      {
+        event: "step_update",
+        step_update: {
+          step_index: 2,
+          state: "ACTIVE",
+          step_type: "agent_response",
+          text_delta: "Inspecting the repository.",
+        },
+      },
+      {
+        event: "step_update",
+        step_update: {
+          step_index: 3,
+          state: "ACTIVE",
+          step_type: "tool",
+          tool_name: "view_file",
+          tool_info: {
+            name: "view_file",
+            parameters: { AbsolutePath: "src/app.ts" },
+          },
+        },
+      },
+      {
+        event: "step_update",
+        step_update: {
+          step_index: 3,
+          state: "DONE",
+          step_type: "tool",
+          tool_name: "view_file",
+          tool_info: {
+            name: "view_file",
+            parameters: { AbsolutePath: "src/app.ts" },
+          },
+          output: "file contents",
+        },
+      },
+      {
+        event: "result",
+        result: {
+          status: "SUCCESS",
+          response: "Review complete",
+        },
+      },
+    ],
+    "agy",
+  );
+
+  assert.equal(result.run.status, 0);
+  assert.match(result.watch, /SESSION model=gemini-3\.8-flash-high/);
+  assert.doesNotMatch(result.watch, /THINKING active tokens=/);
+  assert.match(result.watch, /THINKING Inspecting the repository\./);
+  assert.equal((result.watch.match(/TOOL view_file src\/app\.ts/g) ?? []).length, 1);
+  assert.equal(result.final, "Review complete");
+});
+
 test("styles mirrored Grok activity without coloring the saved log", () => {
   const result = runAdapter(
     [

@@ -97,14 +97,14 @@ For write work add `--permission-mode bypassPermissions`.
 "$RUNTIME" start \
   --lane gemini --cwd "$CWD" --spec "$SPEC" --state-dir "$STATE_DIR" \
   --result-source "$FINAL" --ephemeral-watch \
-  --title "$TITLE" --model-label "gemini-3.6-flash-high" --mode read -- \
+  --title "$TITLE" --model-label "gemini-3.8-flash-high" --mode read -- \
   node "$ADAPTER" --format agy --watch "$WATCH" --final "$FINAL" \
   --diagnostic "$DIAGNOSTIC" -- \
   agy --print "$(cat "$SPEC")" --mode plan --dangerously-skip-permissions \
-  --print-timeout 15m --model gemini-3.6-flash-high --output-format stream-json
+  --print-timeout 0s --model gemini-3.8-flash-high --output-format stream-json
 ```
 
-The prompt must immediately follow `--print`. For write work replace `--mode plan` with `--mode accept-edits`; retain `--dangerously-skip-permissions` so a headless permission prompt cannot stall the lane. Never use an Antigravity Claude model.
+The prompt must immediately follow `--print`. A zero print timeout disables the elapsed-time deadline; the lane continues until the turn completes or the user stops it. For write work replace `--mode plan` with `--mode accept-edits`; retain `--dangerously-skip-permissions` so a headless permission prompt cannot stall the lane. Never use an Antigravity Claude model.
 
 ### OpenCode
 
@@ -120,21 +120,37 @@ The prompt must immediately follow `--print`. For write work replace `--mode pla
 
 For write work use `--agent build --auto`. If the user names an OpenCode model, add `--model PROVIDER/MODEL` and report that exact value in `--model-label`.
 
+### Sol
+
+```bash
+"$RUNTIME" start \
+  --lane sol --cwd "$CWD" --spec "$SPEC" \
+  --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
+  --title "$TITLE" --model-label "gpt-6-sol / medium" --mode read -- \
+  node "$ADAPTER" --format codex --watch "$WATCH" --final "$FINAL" \
+  --diagnostic "$DIAGNOSTIC" --stdin-file "$SPEC" -- \
+  codex exec --json --output-last-message "$FINAL" \
+  --model gpt-6-sol -c 'model_reasoning_effort="medium"' \
+  --sandbox read-only --cd "$CWD" -
+```
+
+For write work replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Sol always means `gpt-6-sol` with `medium` reasoning and no service-tier override. Do not restrict its tools for output-size control.
+
 ### Luna
 
 ```bash
 "$RUNTIME" start \
   --lane luna --cwd "$CWD" --spec "$SPEC" \
   --state-dir "$STATE_DIR" --result-source "$FINAL" --ephemeral-watch \
-  --title "$TITLE" --model-label "gpt-5.6-luna / max / fast" --mode read -- \
+  --title "$TITLE" --model-label "gpt-6-luna / max / fast" --mode read -- \
   node "$ADAPTER" --format codex --watch "$WATCH" --final "$FINAL" \
   --diagnostic "$DIAGNOSTIC" --stdin-file "$SPEC" -- \
   codex exec --json --output-last-message "$FINAL" \
-  --model gpt-5.6-luna -c 'model_reasoning_effort="max"' \
+  --model gpt-6-luna -c 'model_reasoning_effort="max"' \
   -c 'service_tier="priority"' --sandbox read-only --cd "$CWD" -
 ```
 
-For write work replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Luna always means `gpt-5.6-luna`, `max`, and priority service (Fast). Do not restrict its tools for output-size control.
+For write work replace `--sandbox read-only` with `--dangerously-bypass-approvals-and-sandbox`. Luna always means `gpt-6-luna`, `max`, and priority service (Fast). Do not restrict its tools for output-size control.
 
 ## Output Files
 
@@ -149,20 +165,43 @@ With `--ephemeral-watch`, `lane.log`, `final.txt`, and its status file are delet
 
 For OpenCode, a `text` event is live output until its message reaches a non-tool-calls `step_finish`. Intermediate narration before another tool call must never become the final review.
 
-This protocol applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI. Codex runtime worker and explorer transcripts remain owned by the Codex runtime rather than these files.
+This protocol applies to Grok, Claude, Gemini/Antigravity, OpenCode, Sol, and Luna/Codex CLI. Codex runtime worker and explorer transcripts remain owned by the Codex runtime rather than these files.
 
 ## Direct Launch And Await
 
-Run `start` and `await` in one shell invocation:
+Run `start` and `await` in one shell invocation owned by one `functions.exec` call. The JavaScript call owns any shell session until it exits:
 
 ```bash
 launch_receipt=$("$RUNTIME" start START_ARGUMENTS -- COMMAND ARGUMENTS) || exit $?
 "$RUNTIME" await --state-dir "$STATE_DIR"
 ```
 
-Keep the successful launch receipt inside the shell. Do not poll state, read logs, inspect diffs, or narrate routine progress while the lane runs. If the command tool yields a live shell session, continue only that session at the longest supported wait. The user can watch `lane.log` through `codex-orchestrator agents` without consuming Codex tokens.
+Use this outer tool pattern, substituting the complete shell command and working directory:
 
-For multiple lanes, start all lanes before the first `await`, then await all of them in the same blocking shell invocation.
+```javascript
+// @exec: {"yield_time_ms": 3600000, "max_output_tokens": 16000}
+let run = await tools.exec_command({
+  cmd: shellCommand,
+  workdir,
+  yield_time_ms: 30000,
+  max_output_tokens: 16000,
+});
+let output = run.output || "";
+while (run.session_id) {
+  run = await tools.write_stdin({
+    session_id: run.session_id,
+    chars: "",
+    yield_time_ms: 300000,
+    max_output_tokens: 16000,
+  });
+  output += run.output || "";
+}
+text(output);
+```
+
+Keep the successful launch receipt inside the shell. Do not poll state, read logs, inspect diffs, or narrate routine progress while the lane runs. `tools.exec_command` and `tools.write_stdin` remain inside `functions.exec`, which must not return the intermediate session ID to the main model. The user can watch `lane.log` through `codex-orchestrator agents` without consuming Codex tokens.
+
+For multiple lanes, start all lanes before the first `await`, then await all of them in the same blocking shell and `functions.exec` call.
 
 The stable task key combines lane, working directory, and spec content. Starting the same live task again returns `ALREADY_RUNNING` rather than creating a duplicate process.
 

@@ -415,6 +415,12 @@ function deltaText(event) {
   return "";
 }
 
+function agyStep(event) {
+  if (options.format !== "agy" || event?.event !== "step_update") return null;
+  const step = event?.step_update;
+  return step && typeof step === "object" ? step : null;
+}
+
 function thinkingText(event) {
   const streamEvent = event?.type === "stream_event" ? event.event : event;
   const delta = streamEvent?.delta;
@@ -440,10 +446,18 @@ function thinkingText(event) {
       .filter(Boolean)
       .join("\n");
   }
+  const step = agyStep(event);
+  if (step?.step_type === "agent_response") {
+    return contentText(step.text_delta ?? step.thinking_delta ?? step.text);
+  }
   return "";
 }
 
 function finalText(event) {
+  if (event?.event === "result") {
+    const result = event.result;
+    return contentText(result?.response ?? result?.output ?? result?.content ?? result?.message ?? result);
+  }
   if (event?.type === "result") {
     return contentText(event.result ?? event.output ?? event.message);
   }
@@ -454,6 +468,7 @@ function finalText(event) {
 }
 
 function eventName(event) {
+  if (typeof event?.event === "string") return event.event;
   return String(event?.type ?? event?.event?.type ?? event?.sessionUpdate ?? "");
 }
 
@@ -475,7 +490,10 @@ function bestResult() {
 }
 
 function toolSummary(event) {
+  const step = agyStep(event);
+  if (step && step.state !== "ACTIVE") return "";
   const candidates = [
+    step,
     event?.item,
     event?.part,
     event?.message,
@@ -485,14 +503,24 @@ function toolSummary(event) {
   ];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") continue;
-    const kind = String(candidate.type ?? eventName(event)).toLowerCase();
+    const kind = String(candidate.type ?? candidate.step_type ?? eventName(event)).toLowerCase();
     if (!kind.includes("tool") && !kind.includes("command")) continue;
-    const name = candidate.name ?? candidate.tool ?? candidate.tool_name ?? candidate.command;
-    const input = candidate.input ?? candidate.state?.input ?? candidate.arguments;
+    const name = candidate.name ?? candidate.tool ?? candidate.tool_name ?? candidate.command ?? candidate.tool_info?.name;
+    const input = candidate.input ?? candidate.state?.input ?? candidate.arguments ?? candidate.tool_info?.parameters;
     let detail = "";
     if (typeof input === "string") detail = input;
     else if (input && typeof input === "object") {
-      detail = input.path ?? input.file_path ?? input.command ?? input.query ?? "";
+      detail =
+        input.path ??
+        input.file_path ??
+        input.command ??
+        input.query ??
+        input.AbsolutePath ??
+        input.CommandLine ??
+        input.SearchPath ??
+        input.Query ??
+        input.Pattern ??
+        "";
     }
     return clip([name, detail].filter(Boolean).join(" "), 500);
   }
@@ -511,7 +539,8 @@ function handleEvent(event) {
     emitOnce("thinking", "THINKING active");
   }
   if (name.includes("thread") || name.includes("session") || name === "init") {
-    emitOnce("session", `SESSION started format=${options.format}`);
+    const model = options.format === "agy" ? clip(event.init?.model, 200) : "";
+    emitOnce("session", model ? `SESSION model=${model}` : `SESSION started format=${options.format}`);
   }
   const tool = toolSummary(event);
   if (tool) {

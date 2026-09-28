@@ -1,6 +1,6 @@
 ---
 name: codex-orchestrator
-description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model lane such as grok, claude, agy, opencode, luna, or ChatGPT Web. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
+description: Multi-agent orchestration for high-stakes Codex work. Use only when the user invokes $codex-orchestrator, or explicitly asks to orchestrate, act as architect and delegate implementation, spawn sub-agents or parallel workers, compare independent implementations, or run an external model lane such as grok, claude, agy, opencode, sol, luna, or ChatGPT Web. Do not use for ordinary single-session coding such as fixing a bug, implementing a feature, refactoring, reviewing code, or planning alone.
 ---
 
 # Codex Orchestrator
@@ -20,9 +20,9 @@ Before choosing a route, reduce the task to first principles: user goal, hard co
 1. Inspect the repo enough to understand the target files, conventions, tests, current git state, and facts that control lane choice.
 2. Decide what stays local and what, if anything, can be delegated.
 3. For each delegated task, write the full five-part spec below.
-4. For every external CLI lane, use one main-session shell invocation that runs the bundled runtime selector `start` command and then enters `await`.
+4. For every external CLI lane, use one `functions.exec` call that owns the shell invocation from runtime `start` through `await`.
 5. Use worker sub-agents for bounded code changes; use explorer sub-agents for narrow read-only questions.
-6. Keep the launch receipt inside that shell invocation so the main model resumes only after `await` returns.
+6. Keep the launch receipt and any shell session ID inside that programmatic tool call so the main model resumes only after `await` returns.
 7. When `await` returns terminal state and result, require `final_available=true`, then review changes before integrating them. Producer exit code `0` alone is not completion evidence.
 8. Run the scoped verification command yourself.
 9. Report only what the diff and verification evidence support.
@@ -137,7 +137,7 @@ Give an optional Broker file paths, not parent history or copied spec contents. 
 
 The main Codex session remains the architect. It writes specs, chooses lanes, reads final artifacts after runtime `await` returns, inspects diffs, and runs verification. When optional Broker mode is active, a completed Broker card is launch evidence only; it is not external-task completion evidence.
 
-Run direct `start` and `await` inside one shell invocation. Capture the successful launch receipt inside the shell instead of returning it to the main model; if launch fails, return the error immediately. The `await` command blocks without model output and returns terminal state plus bounded result. Do not poll runtime state, `done`, logs, diffs, or session files. Do not say that you are continuously monitoring. If the shell tool yields, continue only the same shell session with the longest supported wait and no commentary. For multiple lanes, start every lane and await all of them inside one blocking shell invocation. If optional Brokers were requested, wait once for their launch receipts before the same `await` step.
+Run direct `start` and `await` inside one shell invocation owned by one `functions.exec` call. Inside that JavaScript call, invoke `tools.exec_command` once and, when it returns a session ID, call `tools.write_stdin` in an internal loop until the shell exits. The programmatic tool call must not return the intermediate session ID to the main model. Capture the successful launch receipt inside the shell; if launch fails, return the error immediately. The `await` command blocks without model output and returns terminal state plus bounded result. Do not poll runtime state, `done`, logs, diffs, or session files. Do not say that you are continuously monitoring. For multiple lanes, start every lane and await all of them inside the same shell and programmatic tool call. If optional Brokers were requested, wait once for their launch receipts before the same `await` step.
 
 ## Lane Selection
 
@@ -146,9 +146,10 @@ Use the cheapest adequate lane:
 - Local edit: small or tightly coupled changes where delegation would add overhead.
 - Grok external lane: default delegated producer when this skill is active and implementation or read-only review should leave the main session.
 - Claude external lane: second independent producer or advisor lane when a separate judgment is useful.
-- Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.6-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
+- Antigravity external lane: third independent producer through `agy`, defaulting to `gemini-3.8-flash-high`. If the user says `Gemini` or names a Gemini model, use the Antigravity `agy` lane.
 - OpenCode external lane: use when the user explicitly asks for OpenCode; use its configured model unless the user names one.
-- Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-5.6-luna` with `max` reasoning and Fast service.
+- Sol external lane: when the user says `sol`, use an independent Codex CLI producer fixed to `gpt-6-sol` with `medium` reasoning and the default service tier.
+- Luna external lane: when the user says `luna`, use an independent Codex CLI producer fixed to `gpt-6-luna` with `max` reasoning and Fast service.
 - Explorer sub-agent: Codex runtime lane for narrow read-only questions only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Worker sub-agent: Codex runtime lane for well-scoped implementation only when the user asks for Codex sub-agents, or chooses Codex sub-agents after a preferred external lane is unavailable.
 - Parallel workers: use preferred external lanes first; use Codex runtime workers only for explicitly requested Codex sub-agent parallelism.
@@ -161,7 +162,7 @@ When this skill is active, "agent" means the skill's preferred delegated agents 
 
 Do not use an Antigravity Claude model. If the user asks for Claude, use the Claude CLI lane. If the user asks for Gemini, use the Antigravity `agy` lane with a Gemini model.
 
-Treat `luna` as an exact lane alias for Codex CLI model `gpt-5.6-luna` with reasoning effort `max` and service tier `priority`, which the Codex model catalog labels Fast. Do not route a `luna` request to a generic Codex `worker`, `explorer`, or the main session.
+Treat `sol` as an exact lane alias for Codex CLI model `gpt-6-sol` with reasoning effort `medium` and no service-tier override. Treat `luna` as an exact lane alias for Codex CLI model `gpt-6-luna` with reasoning effort `max` and service tier `priority`, which the Codex model catalog labels Fast. Do not route either request to a generic Codex `worker`, `explorer`, or the main session.
 
 Lane choice is a cost and context decision. Use the cheapest lane that can preserve correctness.
 
@@ -257,14 +258,14 @@ A quiet log is not proof that an external agent has stopped. Headless wrappers c
 When an external lane is launched:
 
 1. Retain the prompt path, state directory, log path, result path, and done path.
-2. In one shell invocation, run runtime `start`, retain `STARTED` or `ALREADY_RUNNING` inside the shell, and continue directly into `await`.
+2. In one `functions.exec` call, run runtime `start`, retain `STARTED` or `ALREADY_RUNNING` inside the owned shell, and continue directly into `await`.
 3. Let only a launch error or the final `await` result return to the main model.
 4. Do not read agent transcripts, runtime state, CLI logs, diffs, `done`, or tool history while the lane runs.
 5. Do not start a duplicate lane or issue routine status commands.
 6. Do not cancel or kill a lane solely because it is quiet. Do not change permission mode as a reaction to an unclear stall.
-7. The shell wait emits nothing while running. When it returns terminal state and result, inspect the actual diff.
+7. The internal shell wait emits nothing to the main model while running. When it returns terminal state and result, inspect the actual diff.
 
-Waiting must remain a non-model operation. Never produce updates such as "I am continuously monitoring", never read routine progress, and never start periodic status commands. If the command tool exposes a live session after yielding, wait on that same session at the maximum interval without any intervening analysis or user-facing narration.
+Waiting must remain a non-model operation. Never produce updates such as "I am continuously monitoring", never read routine progress, and never start periodic status commands. Any live shell session stays inside the original `functions.exec` JavaScript loop until it exits.
 
 If the user assigned implementation to a named external agent, that agent remains the implementation owner until its terminal state is confirmed. Do not silently replace it with local implementation while its session is active.
 
@@ -290,35 +291,35 @@ Grok note: inherited MCP startup warnings are not terminal evidence if the lane 
 
 Claude Code note: use `--output-format stream-json --include-partial-messages --verbose` so the dashboard can display emitted thinking and tool activity. Use `--model sonnet --effort high` unless the user asks for a different Claude model or effort such as `max`.
 
-Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. For headless read-only work, always combine `--mode plan` with `--dangerously-skip-permissions`; plan mode keeps the lane in review posture while automatic approval lets it read files and run inspection commands without an unavailable prompt. Add `--print-timeout 15m` so repository reviews are not cut off by the five-minute default. State the no-edit contract in the spec and inspect the working-directory diff after the lane exits. Before starting or retrying, check whether the same Antigravity task still has a live process or session; do not stack a duplicate lane on top of active work. If the output says a tool required permission and was auto-denied, classify the attempt as invocation setup failure rather than a review result. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
+Antigravity note: `agy --print` consumes the token immediately after `--print` as the prompt. Put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Do not pipe the spec through stdin for `agy` print mode unless the installed CLI explicitly documents stdin support. For headless read-only work, always combine `--mode plan` with `--dangerously-skip-permissions`; plan mode keeps the lane in review posture while automatic approval lets it read files and run inspection commands without an unavailable prompt. Add `--print-timeout 0s` to disable the elapsed-time deadline; the lane continues until the turn completes or the user stops it. State the no-edit contract in the spec and inspect the working-directory diff after the lane exits. Before starting or retrying, check whether the same Antigravity task still has a live process or session; do not stack a duplicate lane on top of active work. If the output says a tool required permission and was auto-denied, classify the attempt as invocation setup failure rather than a review result. If an `agy` response explains `--mode`, `--print-timeout`, or CLI usage instead of reading the repo/task, treat that lane attempt as an invocation setup failure and rerun once with the prompt-first form.
 
 OpenCode note: use `opencode run --format json --thinking`; use `--agent plan` for read-only work and `--agent build --auto` for write work. The adapter excludes verbose tool results from the watch stream and result snapshot.
 
 ### Model Selection
 
-If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use `grok-4.5` for Grok, `sonnet` for Claude, and `gemini-3.6-flash-high` for Antigravity. OpenCode uses its current configured model unless the user names one.
+If the user names a model, pass the model flag for that CLI. If the user names a Claude effort, pass that effort. If the user does not name a model, use `grok-4.5` for Grok, `sonnet` for Claude, and `gemini-3.8-flash-high` for Antigravity. OpenCode uses its current configured model unless the user names one.
 
-`luna` is a fixed alias, not an unspecified model request. Always pass `--model gpt-5.6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
+`sol` and `luna` are fixed aliases, not unspecified model requests. For `sol`, pass `--model gpt-6-sol` and `-c 'model_reasoning_effort="medium"'` without a service-tier override. For `luna`, pass `--model gpt-6-luna`, `-c 'model_reasoning_effort="max"'`, and `-c 'service_tier="priority"'`.
 
 Always use the event-stream and output-adapter commands in [references/broker-lanes.md](references/broker-lanes.md). Do not replace them with plain-text output commands because that merges live observation with the final result and leaves Claude quiet while it works.
 
-Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `gemini-3.6-flash-high` unless the user names another Antigravity model.
+Claude uses `--model sonnet --effort high` by default for this skill's Claude lane unless the user asks for another Claude model or effort such as `max`. For the `agy` lane, use `gemini-3.8-flash-high` unless the user names another Antigravity model.
 
 Gemini is an Antigravity `agy` request. Use `agy --model "<Gemini model>"` for Gemini requests. Never select an Antigravity Claude model; route Claude requests to the Claude CLI lane instead.
 
 Check available Grok models with `grok models`. Check Claude model aliases with `claude --help`. Check available Antigravity models with `agy models`.
 
-Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer or says `luna`. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. For write-producing work, pass `--dangerously-bypass-approvals-and-sandbox`; always verify the diff before accepting changes.
+Use `codex exec` only when the user explicitly asks for an independent Codex CLI producer or says `sol` or `luna`. Run it in the current working directory by default; use a separate working directory or worktree only when the user explicitly requests it. For write-producing work, pass `--dangerously-bypass-approvals-and-sandbox`; always verify the diff before accepting changes.
 
 For external CLI work:
 
 1. Write the five-part spec to a unique temporary prompt file and run `check-spec`.
 2. Record the current working directory. Use a separate path only when the user explicitly requested it.
 3. Compute the state directory with `lane-runtime.sh state-dir`, plus a concise title, accurate model label, and read/write mode.
-4. Run the exact runtime-selector start command and `await` in one main-session shell invocation.
+4. Run the exact runtime-selector start command and `await` in one shell invocation owned by one `functions.exec` call.
 5. Keep `STARTED` or `ALREADY_RUNNING` inside the shell; return a launch error immediately.
 6. For multiple lanes, start all of them before awaiting them in that same shell invocation.
-7. If the shell yields, continue only its existing session at the longest supported wait without reading any other state.
+7. If `tools.exec_command` returns a session ID, continue it with `tools.write_stdin` inside the same JavaScript call; the programmatic tool call must not return the intermediate session ID to the main model.
 8. When `await` returns, inspect the returned terminal state, bounded result, actual diff, and retained artifact paths.
 9. Run the scoped verification yourself without broadening it unless the user approved that broader command.
 10. Report status, changed files, verification output, log path, and any gaps.

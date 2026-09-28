@@ -163,7 +163,7 @@ Each `watch` process is an independent read-only observer until you explicitly c
 - Keeps the main Codex session as architect.
 - Uses five-part specs for delegated work: objective, files, interfaces, constraints, verification.
 - Supports worker and explorer sub-agents.
-- Supports optional external CLI lanes such as `grok`, `claude`, `agy`, `opencode`, `luna`, and `codex` when those tools are installed and authenticated.
+- Supports optional external CLI lanes such as `grok`, `claude`, `agy`, `opencode`, `sol`, `luna`, and `codex` when those tools are installed and authenticated.
 - Supports an optional ChatGPT Web manual planning/review handoff without connectors, tunnels, callbacks, or browser output capture.
 - Starts each external CLI lane through a non-model runtime selector.
 - Uses Herdr for persistent PTYs, workspaces, native windows, and event waits when its server is ready.
@@ -218,20 +218,22 @@ Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> grok
 Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> claude
 Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> agy / Gemini
 Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> opencode
-Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> codex / GPT-5.6 Luna Max / Fast
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> codex / GPT-6 Sol Medium
+Main Agent -> Orchestrator route/spec/result -> Herdr Runtime -> codex / GPT-6 Luna Max / Fast
 ```
 
 `skills/codex-orchestrator/scripts/lane-runtime.sh` selects the backend. Its default `auto` mode uses Herdr only when the CLI and server are ready. Set `CODEX_ORCHESTRATOR_RUNTIME=herdr` to require Herdr or `CODEX_ORCHESTRATOR_RUNTIME=supervisor` to use the original shell runtime. An explicit Herdr request fails clearly rather than installing or starting software without permission.
 
 Normal launches leave `CODEX_ORCHESTRATOR_RUNTIME` unset, which keeps Herdr first. Explicit `supervisor` mode is reserved for a user request or a confirmed Herdr launch failure. When Herdr is ready, the selector also requires `CODEX_ORCHESTRATOR_SUPERVISOR_REASON=user_requested` or `herdr_launch_failed`, which prevents stale sessions from silently overriding `auto`. State directories are computed by `lane-runtime.sh state-dir`; the command uses `CODEX_ORCHESTRATOR_STATE_ROOT` or the platform temporary directory and prevents a lane from disappearing into a separately hardcoded `/tmp` tree.
 
-The main session uses one shell invocation to run runtime `start` and continue directly into `await`. A successful `STARTED` or `ALREADY_RUNNING` receipt stays inside the shell, so it does not create another model step. With Herdr, the external Agent runs in a real Herdr PTY and a no-model watcher blocks on one anchored completion event. The runtime stores at most the final 16 KiB in `result.txt`; the event adapter writes a separate live view and final response. These runtime processes use no model tokens. The main Codex session still judges completed results and runs verification.
+The main session uses one programmatic tool call to own the shell from runtime `start` through `await`. A successful `STARTED` or `ALREADY_RUNNING` receipt and any shell session ID stay inside that call, so the main model does not receive intermediate session IDs or generate repeated wait turns. With Herdr, the external Agent runs in a real Herdr PTY and a no-model watcher blocks on one anchored completion event. The runtime stores at most the final 16 KiB in `result.txt`; the event adapter writes a separate live view and final response. These runtime processes use no model tokens. The main Codex session still judges completed results and runs verification.
 
 Runtime and producer settings are intentionally separate:
 
 ```text
 Lane runtime: Herdr or shell process, no model
-Luna producer: GPT-5.6 Luna Max, Fast service
+Sol producer: GPT-6 Sol Medium, default service
+Luna producer: GPT-6 Luna Max, Fast service
 ```
 
 The runtime waits for `done` without model output and returns terminal state plus the bounded result once. A producer exit code of `0` counts as success only when the adapter also observed a usable final response. The main Agent then continues review and verification automatically. It never wakes for a successful launch receipt, polls status, or reads routine logs.
@@ -254,21 +256,22 @@ If you specify a model, the skill passes the model flag to that CLI. The exact r
 
 For write-producing implementation lanes, use broad edit and tool approval modes to avoid permission stalls. Keep read-only reviews and advisor passes on read-only or default modes. Use Grok `--no-subagents` by default so Grok remains one external producer under one runtime lane. Do not combine Grok `--check` with `--no-subagents`.
 
-For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Headless read-only reviews should use `--mode plan --dangerously-skip-permissions --print-timeout 15m`: plan mode keeps review posture, while automatic approval permits file reads and inspection commands when no permission prompt can be shown. Confirm afterward that Gemini did not change the working-directory diff. Before retrying, confirm the same Antigravity process or session is not still active. If Gemini reports an auto-denied tool permission, or explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun once with the corrected prompt-first command form.
+For Antigravity `agy`, put the prompt immediately after `--print` or `-p`, then pass `--mode`, `--model`, and permission flags. Headless read-only reviews should use `--mode plan --dangerously-skip-permissions --print-timeout 0s`: plan mode keeps review posture, automatic approval permits file reads and inspection commands when no permission prompt can be shown, and the zero duration disables the elapsed-time deadline. The lane runs until the turn completes or the user stops it. Confirm afterward that Gemini did not change the working-directory diff. Before retrying, confirm the same Antigravity process or session is not still active. If Gemini reports an auto-denied tool permission, or explains `--mode`, `--print-timeout`, or CLI usage instead of the task, the lane was invoked incorrectly and should be rerun once with the corrected prompt-first command form.
 
-If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `gemini-3.6-flash-high`. OpenCode uses its current configured model unless you name one.
+If you do not specify a model, the CLI default is used, except Claude and Antigravity: the Claude lane uses `--model sonnet --effort high` unless you ask for another Claude model or effort such as `max`, and the `agy` lane default is `gemini-3.8-flash-high`. OpenCode uses its current configured model unless you name one.
 
 Gemini requests always use Antigravity `agy`. Do not use an Antigravity Claude model; Claude requests use the Claude CLI lane.
 
-`luna` always means an independent Codex CLI lane using `gpt-5.6-luna` with reasoning effort `max` and Fast service. Fast maps to the `priority` service tier:
+`sol` always means an independent Codex CLI lane using `gpt-6-sol` with reasoning effort `medium` and no service-tier override. `luna` uses `gpt-6-luna` with `max` reasoning and Fast service. Fast maps to the `priority` service tier:
 
 ```bash
-codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-6-sol -c 'model_reasoning_effort="medium"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
+codex exec --model gpt-6-luna -c 'model_reasoning_effort="max"' -c 'service_tier="priority"' --sandbox read-only --cd "$(pwd)" - < "$SPEC"
 ```
 
-For write-producing Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
+For write-producing Sol or Luna work, use `--dangerously-bypass-approvals-and-sandbox` instead of `--sandbox read-only`.
 
-Luna keeps its full model behavior: GPT-5.6 Luna, `max` reasoning, Fast service, requested permissions, and unrestricted tool calls. Only output capture changes.
+Sol and Luna keep their full model behavior: GPT-6 Sol uses `medium` on the default service tier, while GPT-6 Luna uses `max` with Fast service. Both keep requested permissions and unrestricted tool calls. Only output capture changes.
 
 ## Optional Broker Configuration
 
@@ -311,7 +314,7 @@ agy models
 
 For external lanes, use the runtime's `lane.log`. The user may watch that file outside the main model context. It shows lifecycle, concise tool activity, errors, and thinking text explicitly emitted by the CLI. Codex does not read or summarize routine output; after completion it receives the bounded `result.txt` once.
 
-The output adapter caps `lane.log` at 2 MiB and keeps the exact final response in a separate temporary file. It also records the producer exit code and final availability in a small status file. After success or cancellation, temporary output is deleted. A failed or interrupted lane retains capped live and raw diagnostic evidence; diagnostics older than seven days are removed. This applies to Grok, Claude, Gemini/Antigravity, OpenCode, and Luna/Codex CLI.
+The output adapter caps `lane.log` at 2 MiB and keeps the exact final response in a separate temporary file. It also records the producer exit code and final availability in a small status file. After success or cancellation, temporary output is deleted. A failed or interrupted lane retains capped live and raw diagnostic evidence; diagnostics older than seven days are removed. This applies to Grok, Claude, Gemini/Antigravity, OpenCode, Sol, and Luna/Codex CLI.
 
 For Grok lanes, disable inherited Cursor and Claude MCP discovery by setting `GROK_CURSOR_MCPS_ENABLED=false GROK_CLAUDE_MCPS_ENABLED=false`. Use `--no-subagents` unless the user explicitly asks Grok to coordinate its own subagents. Do not mark Grok unavailable from MCP startup warnings alone if the lane prints task progress or a final response.
 

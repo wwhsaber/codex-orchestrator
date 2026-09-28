@@ -170,7 +170,7 @@ fn agent_color(lane: &str) -> Color {
         "grok" => Color::Green,
         "claude" => Color::Cyan,
         "gemini" | "agy" => Color::Magenta,
-        "luna" | "codex" => Color::Yellow,
+        "sol" | "luna" | "codex" => Color::Yellow,
         "opencode" => Color::LightBlue,
         _ => Color::Gray,
     }
@@ -790,6 +790,12 @@ mod tests {
 
         let wide = agent_pane_title(&task, 100, "02:31");
         assert!(wide.contains("Implement ownership checks"));
+    }
+
+    #[test]
+    fn codex_model_lanes_share_the_codex_color() {
+        assert_eq!(agent_color("sol"), Color::Yellow);
+        assert_eq!(agent_color("luna"), Color::Yellow);
     }
 
     #[test]
